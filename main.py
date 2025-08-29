@@ -214,6 +214,61 @@ class MainSystem:
         except Exception as e:
             self.logger.error(f"❌ Account discovery error: {e}")
             return False
+        
+    def sync_webull_data(self, days_back: int = 30, include_positions: bool = True, 
+                        include_trade_history: bool = True) -> bool:
+        """
+        Sync actual Webull data to local database
+        
+        Args:
+            days_back: Number of days of trade history to sync
+            include_positions: Whether to sync current positions
+            include_trade_history: Whether to sync trade history
+            
+        Returns:
+            bool: True if sync was successful
+        """
+        try:
+            # Import the data sync module
+            from data_sync import WebullDataSync
+            
+            # Check prerequisites
+            if not self.is_logged_in:
+                self.logger.error("❌ Not authenticated - cannot sync data")
+                return False
+            
+            if not self.account_manager or not self.account_manager.accounts:
+                self.logger.error("❌ No accounts discovered - cannot sync data")
+                return False
+            
+            # Initialize data synchronization
+            self.logger.info("🔄 Starting Webull data synchronization...")
+            
+            data_sync = WebullDataSync(
+                wb=self.wb,
+                account_manager=self.account_manager,
+                config=self.config,
+                logger=self.logger
+            )
+            
+            # Perform the sync
+            sync_results = data_sync.sync_all_data(
+                days_back=days_back,
+                include_positions=include_positions,
+                include_trade_history=include_trade_history
+            )
+            
+            # Log results
+            if sync_results['success']:
+                self.logger.info("✅ Data synchronization completed successfully!")
+            else:
+                self.logger.warning("⚠️  Data synchronization completed with errors")
+            
+            return sync_results['success']
+            
+        except Exception as e:
+            self.logger.error(f"❌ Data synchronization error: {e}")
+            return False       
     
     def log_system_status(self):
         """Log essential system status"""
@@ -242,7 +297,12 @@ class MainSystem:
                 self.logger.error("❌ Account discovery failed")
                 return False
             
-            # Step 3: System Status
+            # Step 3: Data Synchronization (NEW)
+            self.logger.info("🔄 Syncing actual Webull data to database...")
+            if not self.sync_webull_data(days_back=30):
+                self.logger.warning("⚠️  Data sync had issues but continuing...")
+            
+            # Step 4: System Status
             self.log_system_status()
             
             # Success
