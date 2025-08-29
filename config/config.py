@@ -28,7 +28,7 @@ class PersonalTradingConfig:
     ACCOUNT_CONFIGURATIONS = {
         'CASH': {
             'enabled': True,
-            'day_trading_enabled': False,
+            'day_trading_enabled': True,
             'options_enabled': True,
             'max_position_size': 0.25,  # 25% of account
             'min_trade_amount': 6.00,
@@ -36,8 +36,8 @@ class PersonalTradingConfig:
             'pdt_protection': True
         },
         'MARGIN': {
-            'enabled': False,
-            'day_trading_enabled': False,
+            'enabled': True,
+            'day_trading_enabled': True,
             'options_enabled': True,
             'max_position_size': 0.25,  # 20% of account
             'min_trade_amount': 6.00,
