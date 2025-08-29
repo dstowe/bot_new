@@ -32,7 +32,7 @@ class webull :
             'os': 'web',
             'osv': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:99.0) Gecko/20100101 Firefox/99.0',
             'app': 'global',
-            'appid': 'webull-webapp',
+            'appid': 'wb_web_app',
             'ver': '3.39.18',
             'lzone': 'dc_core_r001',
             'ph': 'MacOS Firefox',

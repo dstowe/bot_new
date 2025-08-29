@@ -99,66 +99,82 @@ class MainSystem:
             raise
         
     def authenticate(self) -> bool:
-        """Handle authentication using the modular authentication system"""
+        """Handle authentication with enhanced image verification support"""
         try:
-            self.logger.info("🔐 Authenticating...")
+            self.logger.info("🔐 Starting authentication process...")
             
             # Check if credentials exist
             if not self.credential_manager.credentials_exist():
                 self.logger.error("❌ No encrypted credentials found!")
-                self.logger.info("💡 Run: python -c \"from auth.credentials import setup_credentials_interactive; setup_credentials_interactive()\"")
+                self.logger.info("💡 Setup: python -c \"from auth.credentials import setup_credentials_interactive; setup_credentials_interactive()\"")
                 return False
             
-            # Load credentials and set DID automatically
+            # Load credentials info for display
+            cred_info = self.credential_manager.get_credential_info()
+            self.logger.info(f"📋 Using credentials for: {cred_info.get('username', 'Unknown')}")
+            
+            if cred_info.get('has_did'):
+                self.logger.info("✅ Browser DID configured (helps prevent image verification)")
+            else:
+                self.logger.warning("⚠️  No Browser DID - may get image verification errors")
+                self.logger.info("💡 To add DID: python tests/check_did.py")
+            
+            # Load and set DID
             credentials = self.credential_manager.load_credentials()
             stored_did = credentials.get('did')
             
             if stored_did:
-                # Set DID using the webull instance's method (now uses data folder)
                 self.wb._set_did(stored_did, data_folder='data')
-                # Also update the webull instance's _did attribute
                 self.wb._did = stored_did
-                self.logger.info("✅ DID set from stored credentials")
-            else:
-                self.logger.warning("⚠️ No DID stored - may cause image verification errors")
-                self.logger.info("💡 If authentication fails, run: python tests/check_did.py")
+                self.logger.debug("✅ DID applied to Webull client")
             
-            # Try existing session first
-            self.logger.debug("Attempting to load existing session...")
+            # Try existing session first (but don't spend too much time on it)
+            self.logger.info("🔍 Checking for existing session...")
             session_loaded = self.session_manager.auto_manage_session(self.wb)
             
             if session_loaded:
-                self.logger.debug("Session loaded, verifying with API...")
+                self.logger.info("📦 Session loaded, verifying with server...")
                 if self.login_manager.check_login_status():
-                    self.logger.info("✅ Using existing session")
+                    self.logger.info("✅ Existing session verified and active!")
                     self.is_logged_in = True
                     return True
                 else:
-                    # Session loaded but API verification failed
-                    self.logger.debug("Session loaded but API verification failed")
-                    self.logger.info("🔄 Session expired on server, logging in fresh...")
+                    self.logger.info("⚠️  Session expired on server")
                     self.session_manager.clear_session()
-            else:
-                # No session or couldn't load
-                self.logger.debug("No session loaded")
-                self.logger.info("🔑 No valid session, logging in fresh...")
             
-            # Perform fresh login
+            # Perform fresh login with enhanced retry logic
+            self.logger.info("🔑 Starting fresh login process...")
+            self.logger.info("ℹ️  Note: If you see 'Image verification failed', this is normal")
+            self.logger.info("     The system will automatically retry until it succeeds")
+            
             if self.login_manager.login_automatically():
-                self.logger.info("✅ Authentication successful")
+                self.logger.info("🎉 Authentication successful!")
                 self.is_logged_in = True
+                
+                # Save successful session
                 self.session_manager.save_session(self.wb)
+                self.logger.info("💾 Session saved for future use")
+                
                 return True
             else:
-                self.logger.error("❌ Authentication failed")
+                self.logger.error("❌ Authentication failed after all retries")
+                
+                # Provide helpful suggestions
                 if not stored_did:
-                    self.logger.error("💡 Add browser DID: python tests/check_did.py")
+                    self.logger.error("💡 Consider adding a Browser DID to reduce image verification:")
+                    self.logger.error("    python tests/check_did.py")
+                else:
+                    self.logger.error("💡 Troubleshooting suggestions:")
+                    self.logger.error("    1. Wait 10 minutes and try again")
+                    self.logger.error("    2. Check your credentials are correct")
+                    self.logger.error("    3. Try getting a fresh Browser DID")
+                
                 return False
                 
         except Exception as e:
             self.logger.error(f"❌ Authentication error: {e}")
+            self.logger.error("💡 Try running again - temporary issues often resolve")
             return False
-
     
     def discover_accounts(self) -> bool:
         """Discover and load all available trading accounts"""

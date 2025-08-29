@@ -1,12 +1,14 @@
-# auth/login_manager.py
+# auth/login_manager.py - SIMPLIFIED DID FROM CREDENTIALS ONLY
+
 import time
 import logging
 import requests
+import uuid
 from typing import Tuple, Dict
 from .credentials import CredentialManager
 
 class LoginManager:
-    """Handles login operations with retry logic and error handling"""
+    """Handles login operations using DID from encrypted credentials only"""
     
     def __init__(self, wb, credential_manager: CredentialManager = None, logger=None):
         self.wb = wb
@@ -14,17 +16,75 @@ class LoginManager:
         self.logger = logger or logging.getLogger(__name__)
         self.is_logged_in = False
         
-        # Login retry settings
-        self.max_login_attempts = 3
-        self.base_login_delay = 30  # seconds
+        # Enhanced retry settings for image verification
+        self.max_login_attempts = 5
+        self.base_login_delay = 15
+        self.image_verification_delay = 30
         self.max_trade_token_attempts = 3
-        self.base_trade_token_delay = 10  # seconds
+        self.base_trade_token_delay = 10
+    
+    def _setup_did_from_credentials(self):
+        """Setup DID from credentials only - ignores did.bin"""
+        try:
+            if not self.credential_manager.credentials_exist():
+                self.logger.warning("⚠️  No credentials found - using auto-generated DID")
+                self.logger.info("💡 Run credential setup to save DID permanently")
+                # Use whatever DID webull auto-generated
+                return False
+            
+            credentials = self.credential_manager.load_credentials()
+            stored_did = credentials.get('did')
+            
+            if stored_did and len(stored_did) == 32:
+                # Set DID directly on webull instance (bypass did.bin entirely)
+                self.wb._did = stored_did
+                
+                # Also set it in headers
+                if hasattr(self.wb, '_headers') and self.wb._headers:
+                    self.wb._headers['did'] = stored_did
+                
+                self.logger.debug(f"✅ Using DID from credentials: {stored_did}")
+                return True
+            else:
+                # No DID in credentials or invalid DID
+                if stored_did:
+                    self.logger.warning(f"⚠️  Invalid DID in credentials (length: {len(stored_did)})")
+                else:
+                    self.logger.warning("⚠️  No DID in credentials")
+                
+                # Generate new DID and try to save it
+                new_did = uuid.uuid4().hex
+                self.wb._did = new_did
+                
+                if hasattr(self.wb, '_headers') and self.wb._headers:
+                    self.wb._headers['did'] = new_did
+                
+                # Try to save new DID to credentials
+                try:
+                    success = self.credential_manager.update_credentials(did=new_did)
+                    if success:
+                        self.logger.info(f"💾 Generated and saved new DID: {new_did}")
+                    else:
+                        self.logger.warning(f"⚠️  Generated DID but couldn't save: {new_did}")
+                except Exception as e:
+                    self.logger.warning(f"⚠️  Generated DID but save failed: {e}")
+                
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error setting up DID: {e}")
+            # Fall back to letting webull use its default DID
+            return False
     
     def login_automatically(self) -> bool:
-        """Automated login using stored credentials with retry logic"""
+        """Automated login using DID from credentials only"""
+        
+        # Setup DID from credentials (ignore did.bin)
+        self._setup_did_from_credentials()
+        
         for attempt in range(1, self.max_login_attempts + 1):
             try:
-                self.logger.info(f"Starting automated login attempt {attempt}/{self.max_login_attempts}...")
+                self.logger.info(f"🔑 Login attempt {attempt}/{self.max_login_attempts}...")
                 
                 # Load credentials
                 credentials = self.credential_manager.load_credentials()
@@ -34,62 +94,96 @@ class LoginManager:
                     self.logger.error("❌ Invalid credentials found")
                     return False
                 
-                # Set DID if provided
-                if credentials.get('did'):
-                    self.wb._did = credentials['did']
-                    self.wb._set_did(credentials['did'])
-                    self.logger.info("DID set from stored credentials")
+                # Show which DID we're using
+                current_did = getattr(self.wb, '_did', 'auto-generated')
+                self.logger.debug(f"🔑 Using DID: {current_did}")
+                
+                # Add small random delay to avoid detection patterns
+                base_delay = 2 + (attempt * 0.5)
+                time.sleep(base_delay)
                 
                 # Login to Webull
-                self.logger.info("Attempting Webull login...")
+                self.logger.info("📡 Contacting Webull servers...")
                 login_result = self.wb.login(
                     username=credentials['username'],
                     password=credentials['password']
                 )
                 
+                # Debug logging (remove this line if you don't want to see login results)
+                self.logger.debug(f"🔍 Login result: {login_result}")
+                
                 # Check login result
                 if 'accessToken' in login_result:
-                    self.logger.info("✅ Webull login successful")
+                    self.logger.info("✅ Webull login successful!")
                     self.is_logged_in = True
                     
                     # Try to get trade token with retries
                     if self._get_trade_token_with_retry(credentials['trading_pin']):
-                        self.logger.info("✅ Complete login process successful")
+                        self.logger.info("🎉 Complete authentication successful!")
                         return True
                     else:
                         self.logger.error("❌ Failed to get trade token after retries")
-                        # Continue to retry loop for complete login failure
                         
                 else:
                     # Analyze login failure
                     error_msg = login_result.get('msg', 'Unknown error')
                     error_code = login_result.get('code', 'unknown')
                     
-                    self.logger.warning(f"❌ Login attempt {attempt} failed: {error_msg} (Code: {error_code})")
-                    
-                    # Check if this is a retryable error
-                    if not self._is_retryable_login_error(login_result):
-                        self.logger.error(f"❌ Non-retryable login error: {error_msg}")
-                        return False
+                    # Handle image verification specifically
+                    if self._is_image_verification_error(login_result):
+                        self.logger.warning(f"🖼️  Image verification triggered (attempt {attempt})")
+                        self.logger.info(f"   Error: {error_msg}")
+                        self.logger.info("   This is normal - Webull's anti-bot protection")
+                        
+                        # Use longer delay for image verification
+                        if attempt < self.max_login_attempts:
+                            delay = self.image_verification_delay
+                            self.logger.info(f"⏳ Waiting {delay}s to let verification expire...")
+                            time.sleep(delay)
+                            continue
+                    else:
+                        self.logger.warning(f"❌ Login failed: {error_msg} (Code: {error_code})")
+                        
+                        # Check if this is a retryable error
+                        if not self._is_retryable_login_error(login_result):
+                            self.logger.error(f"❌ Non-retryable error: {error_msg}")
+                            return False
                 
             except Exception as e:
                 self.logger.warning(f"❌ Login attempt {attempt} exception: {e}")
                 
                 # Check if this is a retryable exception
                 if not self._is_retryable_exception(e):
-                    self.logger.error(f"❌ Non-retryable exception during login: {e}")
+                    self.logger.error(f"❌ Non-retryable exception: {e}")
                     return False
             
-            # If we get here, we need to retry
+            # Calculate delay for next attempt (if not image verification)
             if attempt < self.max_login_attempts:
-                # Calculate delay with exponential backoff
-                delay = self.base_login_delay * (2 ** (attempt - 1))  # 30, 60, 120 seconds
-                delay = min(delay, 300)  # Cap at 5 minutes
+                delay = self.base_login_delay + (attempt * 5)
+                delay = min(delay, 45)
                 
-                self.logger.info(f"⏳ Waiting {delay} seconds before retry {attempt + 1}...")
+                self.logger.info(f"⏳ Waiting {delay}s before retry {attempt + 1}...")
                 time.sleep(delay)
-            else:
-                self.logger.error(f"❌ All {self.max_login_attempts} login attempts failed")
+        
+        self.logger.error(f"❌ All {self.max_login_attempts} login attempts failed")
+        return False
+    
+    def _is_image_verification_error(self, login_result: Dict) -> bool:
+        """Check if the error is related to image verification"""
+        error_code = login_result.get('code', '').lower()
+        error_msg = login_result.get('msg', '').lower()
+        
+        image_verification_indicators = [
+            'user.check.slider.pic.fail',
+            'image verification failed',
+            'slider verification',
+            'captcha',
+            'verification failed'
+        ]
+        
+        for indicator in image_verification_indicators:
+            if indicator in error_code or indicator in error_msg:
+                return True
         
         return False
     
@@ -97,7 +191,7 @@ class LoginManager:
         """Get trade token with retry logic"""
         for attempt in range(1, self.max_trade_token_attempts + 1):
             try:
-                self.logger.info(f"Getting trade token (attempt {attempt}/{self.max_trade_token_attempts})...")
+                self.logger.info(f"🎫 Getting trade token (attempt {attempt}/{self.max_trade_token_attempts})...")
                 
                 if self.wb.get_trade_token(trading_pin):
                     self.logger.info("✅ Trade token obtained successfully")
@@ -108,10 +202,9 @@ class LoginManager:
             except Exception as e:
                 self.logger.warning(f"❌ Trade token attempt {attempt} exception: {e}")
             
-            # Wait before retry (except on last attempt)
             if attempt < self.max_trade_token_attempts:
-                delay = self.base_trade_token_delay * attempt  # 10, 20 seconds
-                self.logger.info(f"⏳ Waiting {delay} seconds before trade token retry...")
+                delay = self.base_trade_token_delay * attempt
+                self.logger.info(f"⏳ Waiting {delay}s before trade token retry...")
                 time.sleep(delay)
         
         self.logger.error(f"❌ Failed to get trade token after {self.max_trade_token_attempts} attempts")
@@ -122,7 +215,9 @@ class LoginManager:
         error_code = login_result.get('code', '').lower()
         error_msg = login_result.get('msg', '').lower()
         
-        # Non-retryable errors (permanent failures)
+        if self._is_image_verification_error(login_result):
+            return True
+        
         non_retryable_codes = [
             'phone.illegal',
             'user.passwd.error',
@@ -139,7 +234,6 @@ class LoginManager:
             'user not found'
         ]
         
-        # Check for non-retryable conditions
         for code in non_retryable_codes:
             if code in error_code:
                 return False
@@ -148,12 +242,10 @@ class LoginManager:
             if msg in error_msg:
                 return False
         
-        # Default to retryable for unknown errors
         return True
     
     def _is_retryable_exception(self, exception: Exception) -> bool:
         """Determine if an exception is retryable"""
-        # Network-related exceptions are retryable
         retryable_exceptions = [
             requests.exceptions.ConnectionError,
             requests.exceptions.Timeout,
@@ -161,20 +253,23 @@ class LoginManager:
             requests.exceptions.ConnectTimeout,
             ConnectionError,
             TimeoutError,
-            OSError  # Can include network issues
+            OSError
         ]
         
         for exc_type in retryable_exceptions:
             if isinstance(exception, exc_type):
                 return True
         
-        # Default to retryable for unknown exceptions
         return True
     
+    # Keep the existing methods unchanged
     def login_with_credentials(self, username: str, password: str, trading_pin: str, 
                              device_name: str = '', mfa: str = '', 
                              question_id: str = '', question_answer: str = '') -> bool:
-        """Login with explicit credentials (for setup or testing)"""
+        """Login with explicit credentials"""
+        # Setup DID from credentials first
+        self._setup_did_from_credentials()
+        
         try:
             self.logger.info("Attempting login with provided credentials...")
             
@@ -191,7 +286,6 @@ class LoginManager:
                 self.logger.info("✅ Login successful")
                 self.is_logged_in = True
                 
-                # Get trade token
                 if self.wb.get_trade_token(trading_pin):
                     self.logger.info("✅ Trade token obtained")
                     return True
@@ -226,20 +320,16 @@ class LoginManager:
             return False
     
     def check_login_status(self) -> bool:
-        """Check if currently logged in and properly initialize account context"""
+        """Check if currently logged in"""
         try:
-            # STORE current account context
             current_account_id = self.wb._account_id
             current_zone = self.wb.zone_var
             
-            # Test with a simple API call that doesn't change account context
             try:
-                # Use get_quote instead of get_account_id to test login status
                 test_quote = self.wb.get_quote('SPY')
                 if test_quote and 'close' in test_quote:
                     self.is_logged_in = True
                     
-                    # RESTORE account context
                     self.wb._account_id = current_account_id
                     self.wb.zone_var = current_zone
                     
@@ -259,30 +349,10 @@ class LoginManager:
             return False
     
     def refresh_login(self) -> bool:
-        """Refresh the login session if possible - DISABLED DUE TO ERRORS"""
-        try:
-            self.logger.info("Login refresh requested but disabled due to errors")
-            self.logger.info("Refresh functionality has been disabled - will require fresh login")
-            self.is_logged_in = False
-            return False
-            
-            # ORIGINAL CODE COMMENTED OUT:
-            # self.logger.info("Attempting to refresh login session...")
-            # result = self.wb.refresh_login()
-            # 
-            # if 'accessToken' in result and result['accessToken']:
-            #     self.logger.info("✅ Login session refreshed successfully")
-            #     self.is_logged_in = True
-            #     return True
-            # else:
-            #     self.logger.warning("❌ Failed to refresh login session")
-            #     self.is_logged_in = False
-            #     return False
-                
-        except Exception as e:
-            self.logger.error(f"❌ Error in refresh login: {e}")
-            self.is_logged_in = False
-            return False
+        """Refresh login disabled due to errors"""
+        self.logger.info("Login refresh requested but disabled due to errors")
+        self.is_logged_in = False
+        return False
     
     def get_login_info(self) -> Dict:
         """Get information about current login status"""
