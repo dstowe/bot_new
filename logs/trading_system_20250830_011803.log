@@ -1,0 +1,115 @@
+01:18:03 - INFO - 🚀 ENHANCED MULTI-ACCOUNT TRADING SYSTEM
+01:18:03 - INFO - 📝 Log: trading_system_20250830_011803.log
+01:18:03 - INFO - 🔧 Initializing system components...
+01:18:03 - INFO - ✅ All components initialized
+01:18:03 - INFO - 🔐 Starting authentication process...
+01:18:03 - INFO - Credentials loaded successfully
+01:18:03 - INFO - 📋 Using credentials for: david.s.stowe@gmail.com
+01:18:03 - INFO - ✅ Browser DID configured (helps prevent image verification)
+01:18:03 - INFO - Credentials loaded successfully
+01:18:03 - INFO - 🔍 Checking for existing session...
+01:18:03 - INFO - 📦 Session loaded, verifying with server...
+01:18:04 - INFO - ✅ Existing session verified and active!
+01:18:04 - INFO - 🔍 Discovering accounts...
+01:18:05 - INFO - 📊 Found 4 account(s) from Webull API
+01:18:05 - INFO - ✅ Successfully discovered 2 active accounts
+01:18:05 - INFO - 📊 ACCOUNT SUMMARY
+01:18:05 - INFO -    Total Accounts: 2
+01:18:05 - INFO -    Total Value: $354.85
+01:18:05 - INFO -    Available Cash: $300.73
+01:18:05 - INFO - Account 1: Cash Account - ✅ ENABLED
+01:18:05 - INFO -    Balance: $186.10
+01:18:05 - INFO -    Available: $173.97
+01:18:05 - INFO -    Positions: 2
+01:18:05 - INFO -    Day Trading: ✅ | Options: ✅
+01:18:05 - INFO - Account 2: Margin Account - ✅ ENABLED
+01:18:05 - INFO -    Balance: $168.75
+01:18:05 - INFO -    Available: $126.76
+01:18:05 - INFO -    Positions: 6
+01:18:05 - INFO -    Day Trading: ✅ | Options: ✅
+01:18:05 - INFO - 🔄 Syncing actual Webull data to database...
+01:18:05 - INFO - 🔄 Starting Webull data synchronization...
+01:18:05 - INFO - 🔄 Starting Webull data synchronization...
+01:18:05 - INFO - 📊 Syncing data for 2 accounts
+01:18:05 - INFO - 🔄 Syncing Account 1/2: Cash Account
+01:18:05 - INFO -    📈 Syncing trade history (30 days)...
+01:18:05 - INFO - 📊 Fetching trade history for Cash Account account...
+01:18:07 - INFO - ✅ Retrieved 1514 orders from Webull
+01:18:07 - INFO - 📋 Filtered to 82 FILLED orders (last 30 days)
+01:18:07 - INFO - ℹ️  No new completed trades to sync
+01:18:07 - INFO -    ✅ Synced 0 trades
+01:18:07 - INFO -    💼 Syncing current positions...
+01:18:07 - INFO -    ✅ Synced 2 positions
+01:18:07 - INFO -    ✅ Account sync complete
+01:18:08 - INFO - 🔄 Syncing Account 2/2: Margin Account
+01:18:08 - INFO -    📈 Syncing trade history (30 days)...
+01:18:08 - INFO - 📊 Fetching trade history for Margin Account account...
+01:18:12 - INFO - ✅ Retrieved 817 orders from Webull
+01:18:12 - INFO - 📋 Filtered to 77 FILLED orders (last 30 days)
+01:18:12 - INFO - ℹ️  No new completed trades to sync
+01:18:12 - INFO -    ✅ Synced 0 trades
+01:18:12 - INFO -    💼 Syncing current positions...
+01:18:12 - INFO -    ✅ Synced 6 positions
+01:18:12 - INFO -    ✅ Account sync complete
+01:18:13 - INFO - 📊 SYNC SUMMARY
+01:18:13 - INFO -    Accounts: 2
+01:18:13 - INFO -    Trades: 0
+01:18:13 - INFO -    Positions: 8
+01:18:13 - INFO -    Errors: 0
+01:18:13 - INFO - 🎉 Data synchronization completed successfully!
+01:18:13 - INFO - ✅ Data synchronization completed successfully!
+01:18:13 - INFO - 📊 SYSTEM STATUS
+01:18:13 - INFO -    Authentication: ✅
+01:18:13 - INFO -    Accounts Loaded: 2
+01:18:13 - INFO -    Enabled for Trading: 2
+01:18:13 - INFO - 🎉 SYSTEM READY FOR TRADING
+01:18:13 - INFO - ✅ Core system initialized
+01:18:13 - INFO - Initializing Wyckoff Trading System...
+01:18:13 - INFO - Performing initial market scan...
+01:18:13 - INFO - Scanning 40 symbols for Wyckoff patterns
+01:18:14 - INFO - Scan completed: 18 opportunities found
+01:18:14 - INFO - Created watchlist with 18 symbols
+01:18:14 - INFO - ✅ Wyckoff Trading System initialized successfully
+01:18:14 - INFO - ✅ Wyckoff trading system initialized
+01:18:14 - INFO - 🔄 Running single Wyckoff trading cycle
+01:18:14 - INFO - 🔄 Starting Wyckoff trading cycle
+01:18:14 - INFO - Downloading data for 18 symbols
+01:18:16 - INFO - Successfully downloaded data for 18 symbols
+01:18:16 - INFO - Generating signals for 18 symbols
+01:18:17 - INFO - Generated buy signal for MRK with 70.0% confidence
+01:18:17 - INFO - Generated 1 total signals
+01:18:17 - INFO - 🔄 EXECUTING LIVE ORDER for MRK
+01:18:17 - INFO - 🔄 Placing LIVE FRACTIONAL BUY order for MRK: $27.62 (0.328 shares) at $84.12
+01:18:17 - WARNING - ⚠️  Session/token expired, re-authenticating and retrying...
+01:18:17 - INFO - 🔄 Re-authenticating using main system...
+01:18:17 - INFO - 🗑️  Cleared existing session to force fresh authentication
+01:18:17 - INFO - 🔐 Starting authentication process...
+01:18:17 - INFO - Credentials loaded successfully
+01:18:17 - INFO - 📋 Using credentials for: david.s.stowe@gmail.com
+01:18:17 - INFO - ✅ Browser DID configured (helps prevent image verification)
+01:18:17 - INFO - Credentials loaded successfully
+01:18:17 - INFO - 🔍 Checking for existing session...
+01:18:17 - INFO - 🔑 Starting fresh login process...
+01:18:17 - INFO - ℹ️  Note: If you see 'Image verification failed', this is normal
+01:18:17 - INFO -      The system will automatically retry until it succeeds
+01:18:17 - INFO - Credentials loaded successfully
+01:18:17 - INFO - 🔑 Login attempt 1/5...
+01:18:17 - INFO - Credentials loaded successfully
+01:18:19 - INFO - 📡 Contacting Webull servers...
+01:18:20 - INFO - ✅ Webull login successful!
+01:18:20 - INFO - 🎫 Getting trade token (attempt 1/3)...
+01:18:20 - INFO - ✅ Trade token obtained successfully
+01:18:20 - INFO - 🎉 Complete authentication successful!
+01:18:20 - INFO - 🎉 Authentication successful!
+01:18:20 - INFO - Credentials loaded successfully
+01:18:20 - INFO - 💾 Session saved for future use
+01:18:20 - INFO - ✅ Re-authentication successful
+01:18:20 - INFO - 🔄 Refreshing trade token after re-authentication...
+01:18:20 - INFO - ✅ Trade token refreshed after re-authentication
+01:18:20 - INFO - 🔄 Retrying order placement after re-authentication...
+01:18:20 - INFO - ✅ Order succeeded after re-authentication
+01:18:20 - ERROR - ❌ Failed to place fractional buy order for MRK: Inner server error
+01:18:21 - ERROR - ❌ LIVE ORDER FAILED for MRK: Order placement failed: Inner server error
+01:18:21 - INFO - ✅ Cycle completed in 6.6s - 1 signals, 0 trades
+01:18:21 - INFO - Cycle #1 completed in 6.6s: 1/1 signals, 0 trades executed
+01:18:21 - INFO - Top signals: MRK

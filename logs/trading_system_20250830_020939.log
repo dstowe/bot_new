@@ -1,0 +1,88 @@
+02:09:39 - INFO - 🚀 ENHANCED MULTI-ACCOUNT TRADING SYSTEM
+02:09:39 - INFO - 📝 Log: trading_system_20250830_020939.log
+02:09:39 - INFO - 🔧 Initializing system components...
+02:09:39 - INFO - ✅ All components initialized
+02:09:39 - INFO - 🔐 Starting authentication process...
+02:09:39 - INFO - Credentials loaded successfully
+02:09:39 - INFO - 📋 Using credentials for: david.s.stowe@gmail.com
+02:09:39 - INFO - ✅ Browser DID configured (helps prevent image verification)
+02:09:39 - INFO - Credentials loaded successfully
+02:09:39 - INFO - 🔍 Checking for existing session...
+02:09:39 - INFO - 📦 Session loaded, verifying with server...
+02:09:40 - INFO - ✅ Existing session verified and active!
+02:09:40 - INFO - 🔍 Discovering accounts...
+02:09:40 - INFO - 📊 Found 4 account(s) from Webull API
+02:09:40 - INFO - ✅ Successfully discovered 2 active accounts
+02:09:40 - INFO - 📊 ACCOUNT SUMMARY
+02:09:40 - INFO -    Total Accounts: 2
+02:09:40 - INFO -    Total Value: $354.85
+02:09:40 - INFO -    Available Cash: $300.73
+02:09:40 - INFO - Account 1: Cash Account - ✅ ENABLED
+02:09:40 - INFO -    Balance: $186.10
+02:09:40 - INFO -    Available: $173.97
+02:09:40 - INFO -    Positions: 2
+02:09:40 - INFO -    Day Trading: ✅ | Options: ✅
+02:09:40 - INFO - Account 2: Margin Account - ✅ ENABLED
+02:09:40 - INFO -    Balance: $168.75
+02:09:40 - INFO -    Available: $126.76
+02:09:40 - INFO -    Positions: 6
+02:09:40 - INFO -    Day Trading: ✅ | Options: ✅
+02:09:40 - INFO - 🔄 Syncing actual Webull data to database...
+02:09:40 - INFO - 🔄 Starting Webull data synchronization...
+02:09:40 - INFO - 🔄 Starting Webull data synchronization...
+02:09:40 - INFO - 📊 Syncing data for 2 accounts
+02:09:40 - INFO - 🔄 Syncing Account 1/2: Cash Account
+02:09:40 - INFO -    📈 Syncing trade history (30 days)...
+02:09:40 - INFO - 📊 Fetching trade history for Cash Account account...
+02:09:43 - INFO - ✅ Retrieved 1514 orders from Webull
+02:09:43 - INFO - 📋 Filtered to 82 FILLED orders (last 30 days)
+02:09:43 - INFO - ℹ️  No new completed trades to sync
+02:09:43 - INFO -    ✅ Synced 0 trades
+02:09:43 - INFO -    💼 Syncing current positions...
+02:09:43 - INFO -    ✅ Synced 2 positions
+02:09:43 - INFO -    ✅ Account sync complete
+02:09:44 - INFO - 🔄 Syncing Account 2/2: Margin Account
+02:09:44 - INFO -    📈 Syncing trade history (30 days)...
+02:09:44 - INFO - 📊 Fetching trade history for Margin Account account...
+02:09:49 - INFO - ✅ Retrieved 817 orders from Webull
+02:09:49 - INFO - 📋 Filtered to 77 FILLED orders (last 30 days)
+02:09:49 - INFO - ℹ️  No new completed trades to sync
+02:09:49 - INFO -    ✅ Synced 0 trades
+02:09:49 - INFO -    💼 Syncing current positions...
+02:09:49 - INFO -    ✅ Synced 6 positions
+02:09:49 - INFO -    ✅ Account sync complete
+02:09:50 - INFO - 📊 SYNC SUMMARY
+02:09:50 - INFO -    Accounts: 2
+02:09:50 - INFO -    Trades: 0
+02:09:50 - INFO -    Positions: 8
+02:09:50 - INFO -    Errors: 0
+02:09:50 - INFO - 🎉 Data synchronization completed successfully!
+02:09:50 - INFO - ✅ Data synchronization completed successfully!
+02:09:50 - INFO - 📊 SYSTEM STATUS
+02:09:50 - INFO -    Authentication: ✅
+02:09:50 - INFO -    Accounts Loaded: 2
+02:09:50 - INFO -    Enabled for Trading: 2
+02:09:50 - INFO - 🎉 SYSTEM READY FOR TRADING
+02:09:50 - INFO - ✅ Core system initialized
+02:09:50 - INFO - Initializing Wyckoff Trading System...
+02:09:50 - INFO - Performing initial market scan...
+02:09:50 - INFO - Scanning 40 symbols for Wyckoff patterns
+02:09:51 - INFO - Scan completed: 18 opportunities found
+02:09:51 - INFO - Created watchlist with 18 symbols
+02:09:51 - INFO - ✅ Wyckoff Trading System initialized successfully
+02:09:51 - INFO - ✅ Wyckoff trading system initialized
+02:09:51 - INFO - 🔄 Running single Wyckoff trading cycle
+02:09:51 - INFO - 🔄 Starting Wyckoff trading cycle
+02:09:51 - INFO - Downloading data for 18 symbols
+02:09:54 - INFO - Successfully downloaded data for 18 symbols
+02:09:54 - INFO - Generating signals for 18 symbols
+02:09:54 - INFO - Generated buy signal for MRK with 70.0% confidence
+02:09:54 - INFO - Generated 1 total signals
+02:09:54 - INFO - 🔄 EXECUTING LIVE ORDER for MRK
+02:09:54 - INFO - 🔄 Placing BUY order for MRK
+02:09:54 - INFO -    Quantity: 0.3283707491991587, Price: $84.12, Type: LMT
+02:09:55 - ERROR - ❌ BUY order failed for MRK: Inner server error
+02:09:55 - ERROR - ❌ LIVE ORDER FAILED for MRK: Order placement failed: Inner server error
+02:09:55 - INFO - ✅ Cycle completed in 3.8s - 1 signals, 0 trades
+02:09:55 - INFO - Cycle #1 completed in 3.8s: 1/1 signals, 0 trades executed
+02:09:55 - INFO - Top signals: MRK

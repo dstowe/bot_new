@@ -1,0 +1,77 @@
+00:35:59 - INFO - 🚀 ENHANCED MULTI-ACCOUNT TRADING SYSTEM
+00:35:59 - INFO - 📝 Log: trading_system_20250830_003559.log
+00:35:59 - INFO - 🔧 Initializing system components...
+00:35:59 - INFO - ✅ All components initialized
+00:35:59 - INFO - 🔐 Starting authentication process...
+00:35:59 - INFO - Credentials loaded successfully
+00:35:59 - INFO - 📋 Using credentials for: david.s.stowe@gmail.com
+00:35:59 - INFO - ✅ Browser DID configured (helps prevent image verification)
+00:35:59 - INFO - Credentials loaded successfully
+00:35:59 - INFO - 🔍 Checking for existing session...
+00:35:59 - INFO - 📦 Session loaded, verifying with server...
+00:35:59 - INFO - ✅ Existing session verified and active!
+00:35:59 - INFO - 🔍 Discovering accounts...
+00:35:59 - INFO - 📊 Found 4 account(s) from Webull API
+00:36:00 - INFO - ✅ Successfully discovered 2 active accounts
+00:36:00 - INFO - 📊 ACCOUNT SUMMARY
+00:36:00 - INFO -    Total Accounts: 2
+00:36:00 - INFO -    Total Value: $354.85
+00:36:00 - INFO -    Available Cash: $300.73
+00:36:00 - INFO - Account 1: Cash Account - ✅ ENABLED
+00:36:00 - INFO -    Balance: $186.10
+00:36:00 - INFO -    Available: $173.97
+00:36:00 - INFO -    Positions: 2
+00:36:00 - INFO -    Day Trading: ✅ | Options: ✅
+00:36:00 - INFO - Account 2: Margin Account - ✅ ENABLED
+00:36:00 - INFO -    Balance: $168.75
+00:36:00 - INFO -    Available: $126.76
+00:36:00 - INFO -    Positions: 6
+00:36:00 - INFO -    Day Trading: ✅ | Options: ✅
+00:36:00 - INFO - 🔄 Syncing actual Webull data to database...
+00:36:00 - INFO - 🔄 Starting Webull data synchronization...
+00:36:00 - INFO - 🔄 Starting Webull data synchronization...
+00:36:00 - INFO - 📊 Syncing data for 2 accounts
+00:36:00 - INFO - 🔄 Syncing Account 1/2: Cash Account
+00:36:00 - INFO -    📈 Syncing trade history (30 days)...
+00:36:00 - INFO - 📊 Fetching trade history for Cash Account account...
+00:36:02 - INFO - ✅ Retrieved 1514 orders from Webull
+00:36:03 - INFO - 📋 Filtered to 82 FILLED orders (last 30 days)
+00:36:03 - INFO - ℹ️  No new completed trades to sync
+00:36:03 - INFO -    ✅ Synced 0 trades
+00:36:03 - INFO -    💼 Syncing current positions...
+00:36:03 - INFO -    ✅ Synced 2 positions
+00:36:03 - INFO -    ✅ Account sync complete
+00:36:04 - INFO - 🔄 Syncing Account 2/2: Margin Account
+00:36:04 - INFO -    📈 Syncing trade history (30 days)...
+00:36:04 - INFO - 📊 Fetching trade history for Margin Account account...
+00:36:07 - INFO - ✅ Retrieved 817 orders from Webull
+00:36:07 - INFO - 📋 Filtered to 77 FILLED orders (last 30 days)
+00:36:07 - INFO - ℹ️  No new completed trades to sync
+00:36:07 - INFO -    ✅ Synced 0 trades
+00:36:07 - INFO -    💼 Syncing current positions...
+00:36:08 - INFO -    ✅ Synced 6 positions
+00:36:08 - INFO -    ✅ Account sync complete
+00:36:09 - INFO - 📊 SYNC SUMMARY
+00:36:09 - INFO -    Accounts: 2
+00:36:09 - INFO -    Trades: 0
+00:36:09 - INFO -    Positions: 8
+00:36:09 - INFO -    Errors: 0
+00:36:09 - INFO - 🎉 Data synchronization completed successfully!
+00:36:09 - INFO - ✅ Data synchronization completed successfully!
+00:36:09 - INFO - 📊 SYSTEM STATUS
+00:36:09 - INFO -    Authentication: ✅
+00:36:09 - INFO -    Accounts Loaded: 2
+00:36:09 - INFO -    Enabled for Trading: 2
+00:36:09 - INFO - 🎉 SYSTEM READY FOR TRADING
+00:36:09 - INFO - ✅ Core system initialized
+00:36:09 - INFO - Initializing Wyckoff Trading System...
+00:36:09 - INFO - Performing initial market scan...
+00:36:09 - INFO - Scanning 40 symbols for Wyckoff patterns
+00:36:12 - INFO - Scan completed: 18 opportunities found
+00:36:12 - INFO - Created watchlist with 18 symbols
+00:36:12 - INFO - ✅ Wyckoff Trading System initialized successfully
+00:36:12 - INFO - ✅ Wyckoff trading system initialized
+00:36:12 - INFO - 🔄 Running single Wyckoff trading cycle
+00:36:12 - INFO - 🔄 Starting Wyckoff trading cycle
+00:36:12 - ERROR - Error getting account info: 'AccountInfo' object has no attribute 'day_trading_enabled'
+00:36:12 - ERROR - Cycle #1 failed: Could not get account information
