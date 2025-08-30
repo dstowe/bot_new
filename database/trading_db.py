@@ -60,7 +60,7 @@ class TradingDatabase:
         """
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(exist_ok=True)
-        self.strategy_id = "UNKNOWN"
+        self.strategy_id = "enhanced_wyckoff_bot_v2"
         self.init_database()
     
     def init_database(self):
@@ -79,7 +79,7 @@ class TradingDatabase:
                     sector TEXT NOT NULL,
                     combined_score REAL NOT NULL,
                     action_taken TEXT,
-                    strategy_id TEXT DEFAULT 'UNKNOWN',
+                    strategy_id TEXT DEFAULT 'enhanced_wyckoff_bot_v2',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -98,9 +98,9 @@ class TradingDatabase:
                     signal_strength REAL,
                     account_type TEXT,
                     order_id TEXT,
-                    status TEXT DEFAULT 'PENDING',
+                    status TEXT,
                     day_trade_check TEXT,
-                    strategy_id TEXT DEFAULT 'UNKNOWN',
+                    strategy_id TEXT DEFAULT 'enhanced_wyckoff_bot_v2',
                     trade_datetime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -122,7 +122,7 @@ class TradingDatabase:
                     position_size_pct REAL DEFAULT 0.1,
                     time_held_days INTEGER DEFAULT 0,
                     volatility_percentile REAL DEFAULT 0.5,
-                    strategy_id TEXT DEFAULT 'UNKNOWN',
+                    strategy_id TEXT DEFAULT 'enhanced_wyckoff_bot_v2',
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (symbol, account_type, strategy_id)
                 )
@@ -141,7 +141,7 @@ class TradingDatabase:
                     recommendation TEXT NOT NULL,
                     details TEXT,
                     emergency_override BOOLEAN DEFAULT FALSE,
-                    strategy_id TEXT DEFAULT 'UNKNOWN',
+                    strategy_id TEXT DEFAULT 'enhanced_wyckoff_bot_v2',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -164,7 +164,7 @@ class TradingDatabase:
                     context_data TEXT,
                     stop_reason TEXT,
                     is_active BOOLEAN DEFAULT TRUE,
-                    strategy_id TEXT DEFAULT 'UNKNOWN',
+                    strategy_id TEXT DEFAULT 'enhanced_wyckoff_bot_v2',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -183,7 +183,7 @@ class TradingDatabase:
                     gain_pct REAL,
                     profit_amount REAL,
                     scaling_level TEXT,
-                    strategy_id TEXT DEFAULT 'UNKNOWN',
+                    strategy_id TEXT DEFAULT 'enhanced_wyckoff_bot_v2',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -207,7 +207,7 @@ class TradingDatabase:
                     portfolio_drawdown_pct REAL DEFAULT 0.0,
                     status TEXT NOT NULL,
                     log_details TEXT,
-                    strategy_id TEXT DEFAULT 'UNKNOWN',
+                    strategy_id TEXT DEFAULT 'enhanced_wyckoff_bot_v2',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -241,15 +241,15 @@ class TradingDatabase:
     
     def log_trade(self, symbol: str, action: str, quantity: float, price: float, 
                   signal_phase: str, signal_strength: float, account_type: str, 
-                  order_id: str = None, day_trade_check: str = None):
-        """Log a trade execution with day trade check info"""
+                  order_id: str = None, day_trade_check: str = None, status: str = 'PENDING'): # <<< CHANGE 1: Added status parameter
+        """Log a trade execution with day trade check info and status"""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute('''
                 INSERT INTO trades (date, symbol, action, quantity, price, total_value, 
                                   signal_phase, signal_strength, account_type, order_id, 
-                                  day_trade_check, strategy_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
+                                  day_trade_check, status, strategy_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', ( # <<< CHANGE 2: Updated SQL query and values tuple
                 datetime.now().strftime('%Y-%m-%d'),
                 symbol,
                 action,
@@ -261,6 +261,7 @@ class TradingDatabase:
                 account_type,
                 order_id,
                 day_trade_check,
+                status, # <<< CHANGE 3: Added status to the values
                 self.strategy_id
             ))
     

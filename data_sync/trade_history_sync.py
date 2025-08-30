@@ -1,24 +1,20 @@
 # data_sync/trade_history_sync.py
 """
-Trade History Synchronization
-=============================
-Fetches actual trade history from Webull API and syncs to database
+Trade History Synchronization - FIXED STATUS HANDLING
+====================================================
+Fixed to properly handle order status and only sync completed trades
 """
 
 import logging
 import time
+import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
 class TradeHistorySync:
     """
     Synchronizes trade history from Webull API to local database
-    
-    Handles:
-    - Fetching historical orders from Webull
-    - Converting Webull order format to database format
-    - Avoiding duplicate trades
-    - Different order types and statuses
+    FIXED: Properly handles order status to only sync completed trades
     """
     
     def __init__(self, wb, database, logger=None):
@@ -38,14 +34,19 @@ class TradeHistorySync:
         self.status_mapping = {
             'Filled': 'FILLED',
             'Cancelled': 'CANCELLED', 
+            'Canceled': 'CANCELLED',
             'Working': 'PENDING',
+            'Pending': 'PENDING',
+            'Queued': 'PENDING',
             'Partially Filled': 'PARTIAL',
+            'PartiallyFilled': 'PARTIAL',
             'Failed': 'FAILED',
-            'Pending': 'PENDING'
+            'Expired': 'CANCELLED',
+            'Rejected': 'FAILED'
         }
         
-        # Order types we sync (avoid pending/working orders)
-        self.syncable_statuses = ['Filled', 'Cancelled', 'Failed', 'Partially Filled']
+        # Only sync these statuses (completed trades only)
+        self.syncable_statuses = ['Filled', 'Partially Filled', 'PartiallyFilled']
     
     def sync_trade_history(self, account, days_back: int = 30, max_orders: int = 1000) -> Dict:
         """
@@ -62,6 +63,8 @@ class TradeHistorySync:
         sync_stats = {
             'trades_synced': 0,
             'orders_fetched': 0,
+            'orders_skipped_pending': 0,
+            'orders_skipped_cancelled': 0,
             'duplicates_skipped': 0,
             'errors': 0,
             'oldest_trade': None,
@@ -69,23 +72,38 @@ class TradeHistorySync:
         }
         
         try:
-            self.logger.debug(f"Fetching trade history for {account.account_type} account...")
+            self.logger.info(f"📊 Fetching trade history for {account.account_type} account...")
             
-            # Get trade history from Webull
-            orders = self._fetch_orders_from_webull(max_orders)
+            # Get trade history from Webull - focus on FILLED orders
+            orders = self._fetch_and_extract_orders(max_orders)
             sync_stats['orders_fetched'] = len(orders)
             
             if not orders:
-                self.logger.debug("No orders found in Webull API response")
+                self.logger.warning("⚠️  No orders found in Webull API response")
                 return sync_stats
             
-            self.logger.debug(f"Retrieved {len(orders)} orders from Webull")
+            self.logger.info(f"✅ Retrieved {len(orders)} orders from Webull")
+            
+            # Debug: Show status distribution
+            status_counts = {}
+            for order in orders:
+                status = self._get_order_status(order)
+                status_counts[status] = status_counts.get(status, 0) + 1
+            
+            self.logger.debug(f"Order status distribution: {status_counts}")
             
             # Filter orders by date and status
             cutoff_date = datetime.now() - timedelta(days=days_back)
-            relevant_orders = self._filter_orders(orders, cutoff_date)
+            self.logger.debug(f"🗓️  Filtering orders after {cutoff_date.strftime('%Y-%m-%d')}")
             
-            self.logger.debug(f"Filtered to {len(relevant_orders)} relevant orders")
+            relevant_orders = self._filter_orders(orders, cutoff_date, sync_stats)
+            
+            self.logger.info(f"📋 Filtered to {len(relevant_orders)} FILLED orders (last {days_back} days)")
+            
+            if sync_stats['orders_skipped_pending'] > 0:
+                self.logger.debug(f"   Skipped {sync_stats['orders_skipped_pending']} pending/working orders")
+            if sync_stats['orders_skipped_cancelled'] > 0:
+                self.logger.debug(f"   Skipped {sync_stats['orders_skipped_cancelled']} cancelled orders")
             
             # Process each order
             for order in relevant_orders:
@@ -104,77 +122,144 @@ class TradeHistorySync:
                         sync_stats['duplicates_skipped'] += 1
                         
                 except Exception as e:
-                    self.logger.warning(f"Error processing order {order.get('orderId', 'unknown')}: {e}")
+                    self.logger.debug(f"Error processing order: {e}")
                     sync_stats['errors'] += 1
                     continue
             
-            self.logger.debug(f"Trade history sync complete: {sync_stats['trades_synced']} trades synced")
+            # Log summary
+            if sync_stats['trades_synced'] > 0:
+                self.logger.info(f"✅ Synced {sync_stats['trades_synced']} completed trades")
+                if sync_stats['oldest_trade'] and sync_stats['newest_trade']:
+                    self.logger.info(f"   Date range: {sync_stats['oldest_trade'].strftime('%Y-%m-%d')} to {sync_stats['newest_trade'].strftime('%Y-%m-%d')}")
+            else:
+                self.logger.info("ℹ️  No new completed trades to sync")
+            
             return sync_stats
             
         except Exception as e:
-            self.logger.error(f"Error in trade history sync: {e}")
+            self.logger.error(f"❌ Error in trade history sync: {e}")
             sync_stats['errors'] += 1
             return sync_stats
     
-    def _fetch_orders_from_webull(self, max_orders: int) -> List[Dict]:
+    def _fetch_and_extract_orders(self, max_orders: int) -> List[Dict]:
         """
-        Fetch orders from Webull API with retry logic
+        Fetch orders from Webull and extract from nested structure
+        Focus on FILLED orders first
         
         Args:
             max_orders: Maximum number of orders to fetch
             
         Returns:
-            List of order dictionaries from Webull API
+            List of individual order dictionaries
         """
         try:
-            # Webull API typically returns orders in pages
-            # We'll fetch multiple pages to get more history
             all_orders = []
             
-            # Fetch different order statuses
-            for status in ['All', 'Filled', 'Cancelled']:
+            # Prioritize fetching filled orders first
+            status_priority = ['Filled', 'All']  # Skip 'Cancelled' initially
+            
+            for status in status_priority:
                 try:
-                    orders = self.wb.get_history_orders(status=status, count=max_orders)
+                    self.logger.debug(f"Fetching orders with status='{status}'...")
                     
-                    if isinstance(orders, dict) and 'data' in orders:
-                        orders = orders['data']
-                    elif isinstance(orders, dict) and 'orders' in orders:
-                        orders = orders['orders']
-                    elif not isinstance(orders, list):
-                        self.logger.warning(f"Unexpected order format from Webull API: {type(orders)}")
+                    # Get the combo orders list
+                    combo_orders = self.wb.get_history_orders(status=status, count=max_orders)
+                    
+                    if not combo_orders:
                         continue
                     
-                    if orders:
-                        all_orders.extend(orders)
-                        self.logger.debug(f"Fetched {len(orders)} orders with status '{status}'")
+                    # Extract individual orders from the nested structure
+                    extracted_count = 0
+                    
+                    if isinstance(combo_orders, list):
+                        for combo_order in combo_orders:
+                            # Each combo_order has an 'orders' field containing the actual orders
+                            if isinstance(combo_order, dict) and 'orders' in combo_order:
+                                nested_orders = combo_order['orders']
+                                if isinstance(nested_orders, list):
+                                    for order in nested_orders:
+                                        # Add combo info to each order for context
+                                        order['comboId'] = combo_order.get('comboId')
+                                        order['comboType'] = combo_order.get('comboType')
+                                        all_orders.append(order)
+                                        extracted_count += 1
+                    
+                    self.logger.debug(f"   Extracted {extracted_count} orders from {len(combo_orders)} combo orders")
                     
                     # Small delay to avoid rate limiting
-                    time.sleep(0.5)
+                    time.sleep(0.2)
                     
                 except Exception as e:
-                    self.logger.warning(f"Error fetching orders with status '{status}': {e}")
+                    self.logger.debug(f"Error fetching {status} orders: {e}")
                     continue
             
             # Remove duplicates based on order ID
             unique_orders = {}
             for order in all_orders:
-                order_id = order.get('orderId') or order.get('id')
+                order_id = self._get_order_id(order)
                 if order_id:
                     unique_orders[order_id] = order
             
-            return list(unique_orders.values())
+            final_orders = list(unique_orders.values())
+            self.logger.debug(f"Total unique orders extracted: {len(final_orders)}")
+            
+            # Debug: Show sample order if available
+            if final_orders and len(final_orders) > 0:
+                sample = final_orders[0]
+                self.logger.debug(f"Sample order status fields:")
+                for field in ['status', 'statusStr', 'orderStatus', 'filledQuantity']:
+                    if field in sample:
+                        self.logger.debug(f"   {field}: {sample[field]}")
+            
+            return final_orders
             
         except Exception as e:
-            self.logger.error(f"Error fetching orders from Webull: {e}")
+            self.logger.error(f"Error fetching orders: {e}")
             return []
     
-    def _filter_orders(self, orders: List[Dict], cutoff_date: datetime) -> List[Dict]:
+    def _get_order_status(self, order: Dict) -> str:
+        """Get order status from various possible fields"""
+        # Check multiple possible status fields
+        for field in ['statusStr', 'status', 'orderStatus']:
+            if field in order and order[field]:
+                return str(order[field])
+        
+        # Check if filled based on quantity
+        if order.get('filledQuantity', 0) > 0:
+            return 'Filled'
+        
+        return 'Unknown'
+    
+    def _get_order_id(self, order: Dict) -> Optional[str]:
+        """Get order ID from various possible fields"""
+        for field in ['orderId', 'id', 'orderNo', 'orderNumber']:
+            if field in order and order[field]:
+                return str(order[field])
+        return None
+    
+    def _get_symbol(self, order: Dict) -> Optional[str]:
+        """Get symbol from order data"""
+        # Check ticker object first (most common)
+        if 'ticker' in order and isinstance(order['ticker'], dict):
+            for field in ['symbol', 'tickerSymbol', 'disSymbol']:
+                if field in order['ticker']:
+                    return order['ticker'][field]
+        
+        # Check top-level fields
+        for field in ['symbol', 'tickerSymbol', 'disSymbol']:
+            if field in order and order[field]:
+                return order[field]
+        
+        return None
+    
+    def _filter_orders(self, orders: List[Dict], cutoff_date: datetime, sync_stats: Dict) -> List[Dict]:
         """
-        Filter orders by date and status
+        Filter orders by date and status - ONLY include filled trades
         
         Args:
             orders: List of order dictionaries
             cutoff_date: Cutoff date (orders before this are excluded)
+            sync_stats: Stats dictionary to update
             
         Returns:
             Filtered list of orders
@@ -183,14 +268,37 @@ class TradeHistorySync:
         
         for order in orders:
             try:
-                # Check order status
-                status = order.get('statusStr', order.get('status', 'Unknown'))
-                if status not in self.syncable_statuses:
+                # Get order status
+                status = self._get_order_status(order)
+                
+                # Skip pending/working orders
+                if status.lower() in ['pending', 'working', 'queued']:
+                    sync_stats['orders_skipped_pending'] += 1
+                    continue
+                
+                # Skip cancelled orders
+                if status.lower() in ['cancelled', 'canceled', 'expired', 'rejected']:
+                    sync_stats['orders_skipped_cancelled'] += 1
+                    continue
+                
+                # Only process filled orders
+                is_filled = (
+                    status in self.syncable_statuses or
+                    status.lower() == 'filled' or
+                    'filled' in status.lower() or
+                    (order.get('filledQuantity', 0) > 0 and 
+                     order.get('filledQuantity', 0) == order.get('totalQuantity', 0))
+                )
+                
+                if not is_filled:
                     continue
                 
                 # Check order date
                 order_date = self._parse_order_date(order)
-                if not order_date or order_date < cutoff_date:
+                if not order_date:
+                    continue
+                    
+                if order_date < cutoff_date:
                     continue
                 
                 # Must have required fields
@@ -200,7 +308,7 @@ class TradeHistorySync:
                 filtered_orders.append(order)
                 
             except Exception as e:
-                self.logger.warning(f"Error filtering order: {e}")
+                self.logger.debug(f"Error filtering order: {e}")
                 continue
         
         return filtered_orders
@@ -208,6 +316,7 @@ class TradeHistorySync:
     def _parse_order_date(self, order: Dict) -> Optional[datetime]:
         """
         Parse order date from various possible fields
+        Prefer filled time for completed trades
         
         Args:
             order: Order dictionary from Webull
@@ -215,35 +324,41 @@ class TradeHistorySync:
         Returns:
             Parsed datetime or None
         """
-        # Try different date fields that Webull might use
-        date_fields = ['createTime', 'updateTime', 'filledTime', 'createdAt', 'placedTime']
+        # Prefer filledTime for completed trades, then createTime
+        date_fields = ['filledTime', 'filledTime0', 'createTime', 'createTime0', 
+                       'placeTime', 'updateTime', 'createdAt', 'orderDate', 'date']
         
         for field in date_fields:
-            if field in order:
+            if field in order and order[field]:
                 try:
                     date_value = order[field]
                     
+                    # Skip zero or invalid values
+                    if date_value == 0 or date_value == '0':
+                        continue
+                    
                     # Handle different date formats
                     if isinstance(date_value, (int, float)):
-                        # Unix timestamp (seconds or milliseconds)
+                        # Unix timestamp
                         if date_value > 1e10:  # Milliseconds
                             date_value = date_value / 1000
-                        return datetime.fromtimestamp(date_value)
+                        if date_value > 0:  # Valid timestamp
+                            return datetime.fromtimestamp(date_value)
                     
                     elif isinstance(date_value, str):
-                        # ISO date string
+                        # Try ISO format first
                         try:
                             return datetime.fromisoformat(date_value.replace('Z', '+00:00'))
                         except ValueError:
-                            # Try other formats
-                            for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%m/%d/%Y']:
+                            # Try other common formats
+                            for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%m/%d/%Y',
+                                        '%Y-%m-%dT%H:%M:%S', '%Y/%m/%d %H:%M:%S']:
                                 try:
                                     return datetime.strptime(date_value, fmt)
                                 except ValueError:
                                     continue
                     
-                except Exception as e:
-                    self.logger.debug(f"Error parsing date field '{field}': {e}")
+                except Exception:
                     continue
         
         return None
@@ -258,23 +373,31 @@ class TradeHistorySync:
         Returns:
             True if order has all required fields
         """
-        required_fields = ['ticker', 'action', 'totalQuantity']
+        # Get symbol
+        symbol = self._get_symbol(order)
+        if not symbol:
+            return False
         
-        # Check basic required fields
-        for field in required_fields:
-            if field not in order:
-                return False
+        # Check for action
+        has_action = any(field in order for field in ['action', 'side'])
+        if not has_action:
+            return False
         
-        # Check ticker has symbol
-        ticker = order.get('ticker', {})
-        if not isinstance(ticker, dict) or 'symbol' not in ticker:
+        # Check for quantity - prefer filledQuantity for completed trades
+        has_quantity = False
+        for field in ['filledQuantity', 'totalQuantity', 'quantity', 'qty']:
+            if field in order and order[field] and float(order[field]) > 0:
+                has_quantity = True
+                break
+        
+        if not has_quantity:
             return False
         
         return True
     
     def _process_single_order(self, order: Dict, account) -> bool:
         """
-        Process a single order and add to database
+        Process a single FILLED order and add to database
         
         Args:
             order: Order dictionary from Webull
@@ -285,58 +408,82 @@ class TradeHistorySync:
         """
         try:
             # Extract order information
-            order_id = order.get('orderId') or order.get('id')
-            symbol = order['ticker']['symbol']
-            action = order.get('action', 'UNKNOWN').upper()
-            quantity = float(order.get('totalQuantity', 0))
+            order_id = self._get_order_id(order)
+            symbol = self._get_symbol(order)
             
-            # Get price (filled price preferred, then limit price)
+            if not symbol:
+                return False
+            
+            # Get action (BUY/SELL)
+            action = order.get('action', order.get('side', 'UNKNOWN')).upper()
+            if action in ['B', 'BUY', 'LONG']:
+                action = 'BUY'
+            elif action in ['S', 'SELL', 'SHORT']:
+                action = 'SELL'
+            
+            # Get quantity (prefer filled quantity for completed trades)
+            quantity = 0
+            # Prefer filledQuantity for accurate completed trade amounts
+            if 'filledQuantity' in order and order['filledQuantity']:
+                quantity = abs(float(order['filledQuantity']))
+            else:
+                # Fallback to other quantity fields
+                for field in ['totalQuantity', 'quantity', 'qty']:
+                    if field in order and order[field]:
+                        quantity = abs(float(order[field]))
+                        break
+            
+            if quantity == 0:
+                return False
+            
+            # Get price (prefer average filled price for completed trades)
             price = 0.0
-            if 'avgFilledPrice' in order and order['avgFilledPrice']:
-                price = float(order['avgFilledPrice'])
-            elif 'filledPrice' in order and order['filledPrice']:
-                price = float(order['filledPrice'])
-            elif 'lmtPrice' in order and order['lmtPrice']:
-                price = float(order['lmtPrice'])
-            elif 'price' in order and order['price']:
-                price = float(order['price'])
+            # Prefer avgFilledPrice for accurate execution price
+            for field in ['avgFilledPrice', 'filledPrice', 'avgPrice', 'executedPrice', 'price', 'lmtPrice']:
+                if field in order and order[field] and float(order[field]) > 0:
+                    price = float(order[field])
+                    break
             
-            # Get order status
-            status = order.get('statusStr', order.get('status', 'UNKNOWN'))
-            mapped_status = self.status_mapping.get(status, 'UNKNOWN')
-            
-            # Get order date
+            # Get order date (prefer filled time)
             order_date = self._parse_order_date(order)
             if not order_date:
-                self.logger.warning(f"Could not parse date for order {order_id}")
                 return False
             
-            # Check if we already have this trade
-            if self._is_duplicate_trade(order_id, symbol, order_date.strftime('%Y-%m-%d')):
+            # Get order status for database
+            status = self._get_order_status(order)
+            mapped_status = self.status_mapping.get(status, 'FILLED')  # Default to FILLED since we're only syncing filled orders
+            
+            # Check if duplicate
+            date_str = order_date.strftime('%Y-%m-%d')
+            if self._is_duplicate_trade(order_id, symbol, date_str):
                 return False
             
-            # Log the trade to database
+            # <<< MODIFICATION START >>>
+            # Log the trade to database with proper status in a single step
             self.db.log_trade(
                 symbol=symbol,
                 action=action,
                 quantity=quantity,
                 price=price,
-                signal_phase='HISTORICAL_SYNC',  # Mark as historical sync
-                signal_strength=0.0,  # No signal strength for historical data
+                signal_phase='HISTORICAL_SYNC',
+                signal_strength=0.0,
                 account_type=account.account_type,
-                order_id=str(order_id),
-                day_trade_check='N/A'  # Historical data doesn't need day trade check
+                order_id=str(order_id) if order_id else None,
+                day_trade_check='N/A',
+                status=mapped_status  # Pass the status directly
             )
+            # The separate call to _update_trade_status is no longer needed.
+            # <<< MODIFICATION END >>>
             
-            # Update trade status to match Webull status
-            self._update_trade_status(order_id, mapped_status)
-            
-            self.logger.debug(f"Synced trade: {action} {quantity} {symbol} @ ${price:.2f}")
+            self.logger.info(f"   ✅ Synced: {action} {quantity} {symbol} @ ${price:.2f} ({order_date.strftime('%Y-%m-%d')}) - {mapped_status}")
             return True
             
         except Exception as e:
             self.logger.error(f"Error processing order: {e}")
-            raise
+            return False
+    
+    # <<< REMOVED METHOD >>>
+    # The _update_trade_status method is no longer needed and has been removed.
     
     def _is_duplicate_trade(self, order_id: str, symbol: str, date: str) -> bool:
         """
@@ -351,31 +498,18 @@ class TradeHistorySync:
             True if duplicate exists
         """
         try:
-            # Check if order ID already exists
-            existing_trades = self.db.get_todays_trades(symbol)
+            if not order_id:
+                return False
             
-            for trade in existing_trades:
-                if trade.get('order_id') == str(order_id):
-                    return True
+            # Check all trades (not just today's) for this order ID
+            import sqlite3
+            with sqlite3.connect(self.db.db_path) as conn:
+                result = conn.execute('''
+                    SELECT COUNT(*) FROM trades 
+                    WHERE order_id = ?
+                ''', (str(order_id),)).fetchone()
+                
+                return result[0] > 0 if result else False
             
+        except Exception:
             return False
-            
-        except Exception as e:
-            self.logger.debug(f"Error checking for duplicate trade: {e}")
-            return False
-    
-    def _update_trade_status(self, order_id: str, status: str):
-        """
-        Update trade status in database
-        
-        Args:
-            order_id: Webull order ID
-            status: New status to set
-        """
-        try:
-            # This would require adding an update method to TradingDatabase
-            # For now, we'll log the status in the original log_trade call
-            pass
-            
-        except Exception as e:
-            self.logger.debug(f"Error updating trade status: {e}")
