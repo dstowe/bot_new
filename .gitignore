@@ -5,5 +5,5 @@ trading_credentials.enc
 trading_data.db
 trading_key.key
 webull_session.json
-CLAUDE2.md
+CLAUDE.md
 .gitignore
