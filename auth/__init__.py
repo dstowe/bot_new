@@ -1,3 +1,4 @@
+# auth/__init__.py
 # Authentication module for trading system
 
 from .credentials import CredentialManager

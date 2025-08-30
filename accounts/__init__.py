@@ -1,3 +1,4 @@
+# accounts/__init__.py
 # Accounts module for managing trading accounts
 
 

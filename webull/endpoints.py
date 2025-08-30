@@ -1,3 +1,4 @@
+# webull/endpoints.py
 class urls :
     def __init__(self) :
         self.base_info_url = 'https://infoapi.webull.com/api'

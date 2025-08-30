@@ -65,4 +65,15 @@ class PersonalTradingConfig:
         }
     }
     
+    # Fractional Trading Parameters
+    FRACTIONAL_TRADING_ENABLED = True
+    MIN_FRACTIONAL_TRADE_AMOUNT = 6.00
+    SMALL_ACCOUNT_THRESHOLD = 500.00  # Accounts below this prefer fractional
+    VERY_SMALL_ACCOUNT_THRESHOLD = 200.00  # Accounts below this always use fractional
+    FRACTIONAL_FULL_SHARE_MULTIPLE = 2.0  # Need 2x share price to consider full shares
+    
+    # Live Trading Safety
+    LIVE_TRADING_ENABLED = True  # SET TO True TO ENABLE REAL TRADES
+    REQUIRE_TRADE_CONFIRMATION = False  # Require user confirmation before placing trades
+    
     

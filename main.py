@@ -1,3 +1,4 @@
+# main.py
 #!/usr/bin/env python3
 """
 Enhanced Automated Multi-Account Trading System - FIXED MAIN.PY
@@ -31,6 +32,7 @@ class MainSystem:
         # Initialize all attributes first
         self.logger = None
         self.is_logged_in = False
+        self.trading_pin = None  # Store trading PIN for token refresh
         
         # Set up logging first
         self.setup_logging()
@@ -150,6 +152,12 @@ class MainSystem:
             if self.login_manager.login_automatically():
                 self.logger.info("🎉 Authentication successful!")
                 self.is_logged_in = True
+                
+                # Store trading PIN for token refresh
+                credentials = self.credential_manager.load_credentials()
+                self.trading_pin = credentials.get('trading_pin')
+                if self.trading_pin:
+                    self.wb.trade_pin = self.trading_pin  # Store in webull client too
                 
                 # Save successful session
                 self.session_manager.save_session(self.wb)
