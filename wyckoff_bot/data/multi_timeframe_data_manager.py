@@ -92,6 +92,12 @@ class MultiTimeframeDataManager:
         if not config:
             raise ValueError(f"Unknown timeframe: {timeframe}")
         
+        # Check if today is a trading day - skip download if not
+        current_date = datetime.now().date()
+        if self._is_weekend_or_holiday(current_date):
+            self.logger.debug(f"Skipping {symbol} {timeframe} download - market closed today")
+            return None
+        
         # Rate limiting
         with self._request_lock:
             now = time.time()
@@ -105,20 +111,29 @@ class MultiTimeframeDataManager:
             latest_timestamp = self.db.get_latest_timestamp(symbol, timeframe)
             
             if latest_timestamp:
-                # Download only missing data
-                start_date = latest_timestamp + timedelta(days=1)
-                # Ensure start_date doesn't exceed current date
-                current_date = datetime.now().date()
-                if start_date.date() >= current_date:
-                    return None  # No new data needed
+                # Find the next trading day after latest data
+                next_trading_day = self._get_next_trading_day(latest_timestamp.date())
                 
-                # Cap the download to current date to prevent future date requests
+                # If next trading day is today or future, check if we need data
+                if next_trading_day >= current_date:
+                    # Only download if market is open and we're missing today's data
+                    if next_trading_day > current_date or not self._is_market_open_today():
+                        return None  # No new data needed
+                
+                # Download from next trading day to yesterday (avoid requesting future data)
+                last_trading_day = self._get_last_market_day(current_date)
+                if next_trading_day > last_trading_day:
+                    return None  # Already have latest available data
+                
+                # Set date range for incremental download
+                start = next_trading_day.strftime('%Y-%m-%d')
+                end = last_trading_day.strftime('%Y-%m-%d')
                 period = None
-                start = start_date.strftime('%Y-%m-%d')
             else:
-                # Download full history
+                # Download full history using period
                 period = f"{config['history_days']}d"
                 start = None
+                end = None
             
             # Download from yfinance
             ticker = yf.Ticker(symbol)
@@ -126,11 +141,10 @@ class MultiTimeframeDataManager:
             if period:
                 df = ticker.history(period=period, interval=config['yf_interval'])
             else:
-                # Add end date to prevent future data requests
-                end_date = datetime.now().strftime('%Y-%m-%d')
-                df = ticker.history(start=start, end=end_date, interval=config['yf_interval'])
+                df = ticker.history(start=start, end=end, interval=config['yf_interval'])
             
             if df.empty:
+                self.logger.debug(f"No data available for {symbol} {timeframe} (start={start}, end={end})")
                 return None
                 
             # Process data for timeframe
@@ -256,14 +270,70 @@ class MultiTimeframeDataManager:
         if date.weekday() >= 5:  # Saturday = 5, Sunday = 6
             return True
             
-        # Common US market holidays (simplified - could use holidays library)
-        # Labor Day 2025 was Monday Sept 1
-        if date.year == 2025 and date.month == 9 and date.day == 1:
+        # US market holidays for 2024-2025
+        year = date.year
+        month = date.month
+        day = date.day
+        
+        # Fixed date holidays
+        holidays_fixed = [
+            (1, 1),   # New Year's Day
+            (7, 4),   # Independence Day  
+            (12, 25), # Christmas Day
+        ]
+        
+        if (month, day) in holidays_fixed:
+            return True
+        
+        # Labor Day - First Monday in September
+        if year == 2024 and month == 9 and day == 2:
+            return True
+        if year == 2025 and month == 9 and day == 2:  # Labor Day 2025 is Sept 2nd
             return True
             
-        # Add other major holidays as needed
-        # New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day, 
-        # Independence Day, Labor Day, Thanksgiving, Christmas
+        # Martin Luther King Jr. Day - 3rd Monday in January
+        if month == 1 and date.weekday() == 0:  # Monday
+            # Calculate which Monday of January this is
+            first_monday = 7 - (datetime(year, 1, 1).weekday() - 0) % 7
+            if first_monday == 7:
+                first_monday = 1
+            third_monday = first_monday + 14
+            if day == third_monday:
+                return True
+        
+        # Presidents Day - 3rd Monday in February
+        if month == 2 and date.weekday() == 0:  # Monday
+            first_monday = 7 - (datetime(year, 2, 1).weekday() - 0) % 7
+            if first_monday == 7:
+                first_monday = 1
+            third_monday = first_monday + 14
+            if day == third_monday:
+                return True
+        
+        # Memorial Day - Last Monday in May
+        if month == 5 and date.weekday() == 0:  # Monday
+            # Check if this is the last Monday of the month
+            next_week = date + timedelta(days=7)
+            if next_week.month != 5:  # Next Monday is in June
+                return True
+        
+        # Thanksgiving - 4th Thursday in November
+        if month == 11 and date.weekday() == 3:  # Thursday
+            first_thursday = 7 - (datetime(year, 11, 1).weekday() - 3) % 7
+            if first_thursday == 7:
+                first_thursday = 1
+            fourth_thursday = first_thursday + 21
+            if day == fourth_thursday:
+                return True
+        
+        # Day after Thanksgiving - 4th Friday in November
+        if month == 11 and date.weekday() == 4:  # Friday
+            first_thursday = 7 - (datetime(year, 11, 1).weekday() - 3) % 7
+            if first_thursday == 7:
+                first_thursday = 1
+            fourth_friday = first_thursday + 22
+            if day == fourth_friday:
+                return True
         
         return False
     
@@ -276,6 +346,35 @@ class MultiTimeframeDataManager:
             check_date -= timedelta(days=1)
             
         return check_date
+    
+    def _get_next_trading_day(self, current_date) -> datetime.date:
+        """Get the next trading day after current_date"""
+        check_date = current_date + timedelta(days=1)
+        
+        # Go forward until we find a trading day
+        while self._is_weekend_or_holiday(check_date):
+            check_date += timedelta(days=1)
+            
+        return check_date
+    
+    def _is_market_open_today(self) -> bool:
+        """Check if market is open today (considering trading hours)"""
+        now = datetime.now()
+        
+        # Market is closed on weekends/holidays
+        if self._is_weekend_or_holiday(now.date()):
+            return False
+        
+        # Market hours: 9:30 AM - 4:00 PM ET
+        # For simplicity, consider market "open" during and after market hours on trading days
+        market_open_hour = 9
+        market_open_minute = 30
+        
+        # If before market open, consider market not yet open for new data
+        if now.hour < market_open_hour or (now.hour == market_open_hour and now.minute < market_open_minute):
+            return False
+        
+        return True
     
     def bulk_download(self, symbols: List[str], timeframes: List[str] = None,
                      max_workers: int = 5) -> Dict[str, Dict[str, pd.DataFrame]]:
