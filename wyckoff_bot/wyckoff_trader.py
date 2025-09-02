@@ -135,10 +135,20 @@ class WyckoffTrader:
                 # Create watchlist from top scan results
                 self.watchlist = self.market_scanner.create_watchlist(scan_results, max_symbols=20)
                 self.logger.info(f"Created watchlist with {len(self.watchlist)} symbols")
+                
+                # Save watchlist to database with scan analysis data
+                analysis_data = {symbol: scan_results.get(symbol, {}) for symbol in self.watchlist}
+                self.trading_db.update_watchlist(self.watchlist, analysis_data)
+                self.logger.info("✅ Saved scan-based watchlist to database")
             else:
                 # Use optimized watchlist from stock universe if scan fails
                 self.watchlist = StockUniverse.get_recommended_watchlist(max_symbols=20)
                 self.logger.warning(f"Using optimized default watchlist with {len(self.watchlist)} symbols")
+                
+                # Save default watchlist to database with minimal analysis data
+                analysis_data = {symbol: {'phase': 'unknown', 'strength': 0.5} for symbol in self.watchlist}
+                self.trading_db.update_watchlist(self.watchlist, analysis_data)
+                self.logger.info("✅ Saved default watchlist to database")
             
             self.is_active = True
             self.logger.info("✅ Wyckoff Trading System initialized successfully")

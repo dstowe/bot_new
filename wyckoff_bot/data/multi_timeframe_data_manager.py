@@ -92,11 +92,8 @@ class MultiTimeframeDataManager:
         if not config:
             raise ValueError(f"Unknown timeframe: {timeframe}")
         
-        # Check if today is a trading day - skip download if not
         current_date = datetime.now().date()
-        if self._is_weekend_or_holiday(current_date):
-            self.logger.debug(f"Skipping {symbol} {timeframe} download - market closed today")
-            return None
+        is_holiday_today = self._is_weekend_or_holiday(current_date)
         
         # Rate limiting
         with self._request_lock:
@@ -111,24 +108,29 @@ class MultiTimeframeDataManager:
             latest_timestamp = self.db.get_latest_timestamp(symbol, timeframe)
             
             if latest_timestamp:
-                # Find the next trading day after latest data
-                next_trading_day = self._get_next_trading_day(latest_timestamp.date())
+                # Check how old our data is
+                hours_old = (datetime.now() - latest_timestamp).total_seconds() / 3600
+                update_threshold = config['update_freq_hours']
                 
-                # If next trading day is today or future, check if we need data
-                if next_trading_day >= current_date:
-                    # Only download if market is open and we're missing today's data
-                    if next_trading_day > current_date or not self._is_market_open_today():
-                        return None  # No new data needed
+                # For intraday data, if we're within the update threshold and market hasn't been open long, skip
+                if timeframe != '1D' and hours_old < update_threshold:
+                    # If it's early in the day and we have recent data, don't update yet
+                    now = datetime.now()
+                    if now.hour < 11:  # Before 11 AM, let market settle
+                        self.logger.debug(f"Too early for {symbol} {timeframe} update (data {hours_old:.1f}h old)")
+                        return None
                 
-                # Download from next trading day to yesterday (avoid requesting future data)
-                last_trading_day = self._get_last_market_day(current_date)
-                if next_trading_day > last_trading_day:
-                    return None  # Already have latest available data
+                # For date range downloads, they often fail - use period instead
+                # Download recent data using period to ensure we get fresh data
+                if timeframe == '15M':
+                    period = "7d"  # Last 7 days for 15M
+                elif timeframe in ['1H', '4H']:
+                    period = "30d"  # Last 30 days for hourly data
+                else:
+                    period = f"{config['history_days']}d"
                 
-                # Set date range for incremental download
-                start = next_trading_day.strftime('%Y-%m-%d')
-                end = last_trading_day.strftime('%Y-%m-%d')
-                period = None
+                start = None
+                end = None
             else:
                 # Download full history using period
                 period = f"{config['history_days']}d"
@@ -288,7 +290,7 @@ class MultiTimeframeDataManager:
         # Labor Day - First Monday in September
         if year == 2024 and month == 9 and day == 2:
             return True
-        if year == 2025 and month == 9 and day == 2:  # Labor Day 2025 is Sept 2nd
+        if year == 2025 and month == 9 and day == 1:  # Labor Day 2025 is Sept 1st (Monday)
             return True
             
         # Martin Luther King Jr. Day - 3rd Monday in January
