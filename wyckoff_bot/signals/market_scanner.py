@@ -13,73 +13,88 @@ from datetime import datetime, timedelta
 import concurrent.futures
 from dataclasses import dataclass
 
+# Import stock universe
+from config.stock_universe import StockUniverse
+from ..data.data_manager import WyckoffDataManager  
+from ..analysis.wyckoff_analyzer import WyckoffAnalyzer
+from ..analysis.market_regime import MarketRegimeAnalyzer
+
 @dataclass
 class ScanResult:
-    """Market scan result"""
+    """Enhanced market scan result with multi-timeframe data"""
     symbol: str
     score: float
     phase: str
     confidence: float
     volume_spike: bool
     price_action_strength: float
+    timeframe_analysis: Dict[str, str] = None  # Multi-timeframe phase analysis
+    entry_timing: str = 'WAIT'  # Entry timing signal
+    market_regime_alignment: bool = False  # Aligns with current market regime
     
 class MarketScanner:
     """
-    Market scanner for Wyckoff opportunities
-    Screens stocks based on Wyckoff criteria
+    Enhanced market scanner for Wyckoff opportunities with multi-timeframe analysis
+    Screens stocks based on Wyckoff criteria across multiple timeframes
     """
     
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, data_manager: WyckoffDataManager = None, 
+                 wyckoff_analyzer: WyckoffAnalyzer = None,
+                 market_regime_analyzer: MarketRegimeAnalyzer = None,
+                 multi_tf_data_manager = None,
+                 logger: logging.Logger = None):
         self.logger = logger or logging.getLogger(__name__)
         
-        # Default stock universe (can be expanded)
-        self.default_universe = [
-            'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'NFLX',
-            'AMD', 'INTC', 'CRM', 'ORCL', 'ADBE', 'PYPL', 'DIS', 'BA',
-            'JPM', 'BAC', 'WFC', 'GS', 'MS', 'C', 'V', 'MA',
-            'JNJ', 'PFE', 'UNH', 'ABBV', 'MRK', 'TMO', 'ABT', 'MDT',
-            'XOM', 'CVX', 'COP', 'SLB', 'MPC', 'VLO', 'PSX', 'KMI'
-        ]
+        # Initialize analyzers
+        self.data_manager = data_manager or WyckoffDataManager(logger=self.logger)
+        self.wyckoff_analyzer = wyckoff_analyzer or WyckoffAnalyzer(logger=self.logger)
+        self.market_regime_analyzer = market_regime_analyzer or MarketRegimeAnalyzer(logger=self.logger)
+        self.multi_tf_data_manager = multi_tf_data_manager
+        
+        # Use comprehensive stock universe optimized for Wyckoff trading
+        self.default_universe = StockUniverse.get_wyckoff_optimized_list()
+        self.high_volume_universe = StockUniverse.get_high_volume_stocks(min_volume=10000000)
+        self.sector_map = StockUniverse.get_sector_mapping()
+        
+        # Multi-timeframe configuration
+        self.scan_timeframes = ['1D', '4H']  # Primary timeframes for scanning
+        self.confirmation_timeframes = ['1H']  # Confirmation timeframes
     
     def scan_market(self, symbols: List[str] = None, 
                    period: str = '3mo',
-                   min_volume: int = 1000000) -> List[ScanResult]:
+                   min_volume: int = 1000000,
+                   use_cached_data: bool = True) -> List[ScanResult]:
         """
-        Scan market for Wyckoff opportunities
+        Enhanced market scan with multi-timeframe analysis
         
         Args:
             symbols: List of symbols to scan (uses default if None)
-            period: Data period to download
+            period: Data period to download (if not using cached data)
             min_volume: Minimum average daily volume
+            use_cached_data: Use cached multi-timeframe data if available
             
         Returns:
             List[ScanResult]: Scan results sorted by score
         """
         symbols = symbols or self.default_universe
-        self.logger.info(f"Scanning {len(symbols)} symbols for Wyckoff patterns")
+        self.logger.info(f"Enhanced scanning {len(symbols)} symbols for Wyckoff patterns")
+        
+        # Get current market regime for context
+        market_regime = self.market_regime_analyzer.analyze_market_regime()
         
         results = []
         
-        # Use threading to speed up data collection
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_symbol = {
-                executor.submit(self._scan_single_symbol, symbol, period, min_volume): symbol 
-                for symbol in symbols
-            }
-            
-            for future in concurrent.futures.as_completed(future_to_symbol):
-                symbol = future_to_symbol[future]
-                try:
-                    result = future.result()
-                    if result:
-                        results.append(result)
-                except Exception as e:
-                    self.logger.warning(f"Error scanning {symbol}: {e}")
+        if use_cached_data:
+            # Use cached multi-timeframe data
+            results = self._scan_with_cached_data(symbols, market_regime, min_volume)
+        else:
+            # Download fresh data and scan
+            results = self._scan_with_fresh_data(symbols, period, market_regime, min_volume)
         
         # Sort by score
         results.sort(key=lambda x: x.score, reverse=True)
         
-        self.logger.info(f"Scan completed: {len(results)} opportunities found")
+        self.logger.info(f"Enhanced scan completed: {len(results)} opportunities found")
         return results
     
     def _scan_single_symbol(self, symbol: str, period: str, 
@@ -90,7 +105,7 @@ class MarketScanner:
             ticker = yf.Ticker(symbol)
             df = ticker.history(period=period)
             
-            if df.empty or len(df) < 50:
+            if df.empty or len(df) < 20:  # Reduced from 50 to 20 for monthly scans
                 return None
             
             # Check volume requirement
@@ -128,8 +143,8 @@ class MarketScanner:
             recent_data, volume_spike, volume_trend, price_action_strength, phase
         )
         
-        # Minimum score threshold
-        if score < 30:
+        # Minimum score threshold (lowered for better results)
+        if score < 15:
             return None
         
         # Estimate confidence
@@ -184,15 +199,18 @@ class MarketScanner:
         # Trading range
         price_range = (df['High'].max() - df['Low'].min()) / df['Close'].iloc[-1]
         
-        if price_range < 0.15 and price_volatility < 0.02:
+        # Relaxed criteria for better detection
+        if price_range < 0.25 and price_volatility < 0.035:  # Relaxed from 0.15 and 0.02
             if volume_trend > 0:
                 return 'accumulation' if price_trend >= 0 else 'distribution'
             else:
                 return 'consolidation'
-        elif price_trend > 0.05 and volume_trend > 0:
+        elif price_trend > 0.03 and volume_trend > -0.1:  # Relaxed trend requirements
             return 'markup'
-        elif price_trend < -0.05 and volume_trend > 0:
+        elif price_trend < -0.03 and volume_trend > -0.1:
             return 'markdown'
+        elif abs(price_trend) < 0.02:  # Low volatility sideways movement
+            return 'consolidation'
         else:
             return 'unknown'
     
@@ -316,3 +334,266 @@ class MarketScanner:
                 watchlist.append(result.symbol)
         
         return watchlist[:max_symbols]
+    
+    # Enhanced multi-timeframe scanning methods
+    
+    def _scan_with_cached_data(self, symbols: List[str], market_regime: Dict, 
+                              min_volume: int) -> List[ScanResult]:
+        """Scan using cached multi-timeframe data"""
+        results = []
+        
+        self.logger.info(f"Scanning {len(symbols)} symbols using cached data")
+        
+        # Use threading for parallel processing
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            future_to_symbol = {
+                executor.submit(self._analyze_symbol_cached, symbol, market_regime, min_volume): symbol
+                for symbol in symbols
+            }
+            
+            for future in concurrent.futures.as_completed(future_to_symbol):
+                symbol = future_to_symbol[future]
+                try:
+                    result = future.result()
+                    if result:
+                        results.append(result)
+                except Exception as e:
+                    self.logger.warning(f"Error scanning {symbol}: {e}")
+        
+        return results
+    
+    def _scan_with_fresh_data(self, symbols: List[str], period: str, 
+                             market_regime: Dict, min_volume: int) -> List[ScanResult]:
+        """Scan with fresh data download"""
+        results = []
+        
+        self.logger.info(f"Downloading fresh data for {len(symbols)} symbols")
+        
+        # Download multi-timeframe data
+        download_results = self.data_manager.multi_tf_manager.bulk_download(
+            symbols, self.scan_timeframes + self.confirmation_timeframes
+        )
+        
+        # Analyze symbols with successful downloads
+        successful_symbols = [symbol for symbol, data in download_results.items() if data]
+        
+        for symbol in successful_symbols:
+            try:
+                result = self._analyze_symbol_cached(symbol, market_regime, min_volume)
+                if result:
+                    results.append(result)
+            except Exception as e:
+                self.logger.warning(f"Error analyzing {symbol}: {e}")
+        
+        return results
+    
+    def _analyze_symbol_cached(self, symbol: str, market_regime: Dict, 
+                              min_volume: int) -> Optional[ScanResult]:
+        """Analyze single symbol using cached multi-timeframe data"""
+        try:
+            # Get multi-timeframe data using the enhanced data manager if available
+            all_timeframes = self.scan_timeframes + self.confirmation_timeframes
+            
+            if self.multi_tf_data_manager:
+                # Try to get cached multi-timeframe data
+                mtf_data = {}
+                missing_timeframes = []
+                
+                for timeframe in all_timeframes:
+                    df = self.multi_tf_data_manager.get_cached_data(
+                        symbol, timeframe, bars=100
+                    )
+                    if df is not None and len(df) >= 50:
+                        mtf_data[timeframe] = df
+                    else:
+                        missing_timeframes.append(timeframe)
+                
+                # If we're missing critical timeframes, try to download them
+                if missing_timeframes and len(missing_timeframes) < len(all_timeframes) / 2:
+                    try:
+                        downloaded_data = self.multi_tf_data_manager.download_symbol_data(
+                            symbol, missing_timeframes
+                        )
+                        mtf_data.update(downloaded_data)
+                    except Exception as e:
+                        self.logger.debug(f"Could not download missing data for {symbol}: {e}")
+                
+            else:
+                # Fallback to original data manager
+                mtf_data = self.data_manager.get_multi_timeframe_data(
+                    symbol, all_timeframes, bars=100
+                )
+            
+            if not mtf_data or len(mtf_data) < len(self.scan_timeframes):
+                return None  # Insufficient data
+            
+            # Check volume requirement using daily data
+            daily_data = mtf_data.get('1D')
+            if daily_data is not None:
+                avg_volume = daily_data['volume'].tail(20).mean()
+                if avg_volume < min_volume:
+                    return None
+            
+            # Perform multi-timeframe Wyckoff analysis
+            mtf_analyses = self.wyckoff_analyzer.analyze_multi_timeframe(mtf_data, symbol)
+            
+            if not mtf_analyses:
+                return None
+            
+            # Generate multi-timeframe signal
+            mtf_signal = self.wyckoff_analyzer.get_multi_timeframe_signal(mtf_analyses)
+            
+            # Get primary analysis (highest timeframe)
+            primary_tf = self.scan_timeframes[0]  # '1D'
+            primary_analysis = mtf_analyses.get(primary_tf)
+            
+            if not primary_analysis:
+                return None
+            
+            # Calculate enhanced score
+            enhanced_score = self._calculate_enhanced_score(
+                mtf_analyses, mtf_signal, market_regime
+            )
+            
+            # Check entry timing
+            entry_timing_signal = self.wyckoff_analyzer.get_entry_timing_signal(
+                mtf_analyses, mtf_signal['signal']
+            )
+            
+            # Create timeframe analysis summary
+            timeframe_analysis = {
+                tf: analysis.phase.value for tf, analysis in mtf_analyses.items()
+            }
+            
+            # Check market regime alignment
+            regime_alignment = self._check_regime_alignment(
+                primary_analysis.phase, market_regime
+            )
+            
+            return ScanResult(
+                symbol=symbol,
+                score=enhanced_score,
+                phase=primary_analysis.phase.value,
+                confidence=mtf_signal['confidence'],
+                volume_spike=self._detect_volume_spike_mtf(mtf_data),
+                price_action_strength=primary_analysis.price_action_strength,
+                timeframe_analysis=timeframe_analysis,
+                entry_timing=entry_timing_signal['timing'],
+                market_regime_alignment=regime_alignment
+            )
+            
+        except Exception as e:
+            self.logger.debug(f"Error analyzing {symbol}: {e}")
+            return None
+    
+    def _calculate_enhanced_score(self, mtf_analyses: Dict, mtf_signal: Dict, 
+                                 market_regime: Dict) -> float:
+        """Calculate enhanced score based on multi-timeframe analysis"""
+        base_score = 0.0
+        
+        # Multi-timeframe signal strength
+        base_score += mtf_signal['strength'] * 40
+        
+        # Confidence factor
+        base_score += mtf_signal['confidence'] * 25
+        
+        # Market regime alignment bonus
+        regime_type = market_regime.get('regime_type', 'UNKNOWN')
+        primary_phase = mtf_signal.get('primary_phase', 'unknown')
+        
+        if regime_type in ['BULL', 'bull'] and primary_phase in ['accumulation', 'markup']:
+            base_score += 15
+        elif regime_type in ['BEAR', 'bear'] and primary_phase in ['distribution', 'markdown']:
+            base_score += 15
+        elif regime_type in ['RANGE', 'ranging'] and primary_phase in ['accumulation', 'distribution']:
+            base_score += 10
+        
+        # Multi-timeframe confirmation bonus
+        confirmations = []
+        for analysis in mtf_analyses.values():
+            if analysis.multi_timeframe_confirmation:
+                confirmation_pct = sum(1 for conf in analysis.multi_timeframe_confirmation.values() if conf) / len(analysis.multi_timeframe_confirmation)
+                confirmations.append(confirmation_pct)
+        
+        if confirmations:
+            avg_confirmation = sum(confirmations) / len(confirmations)
+            base_score += avg_confirmation * 20
+        
+        return min(base_score, 100.0)
+    
+    def _detect_volume_spike_mtf(self, mtf_data: Dict[str, pd.DataFrame]) -> bool:
+        """Detect volume spikes across timeframes"""
+        # Check daily timeframe for volume spikes
+        daily_data = mtf_data.get('1D')
+        if daily_data is not None:
+            recent_volume = daily_data['volume'].tail(3).mean()
+            avg_volume = daily_data['volume'].tail(20).mean()
+            if recent_volume > avg_volume * 1.5:
+                return True
+        
+        # Check 4H timeframe for intraday spikes
+        h4_data = mtf_data.get('4H')
+        if h4_data is not None:
+            recent_volume = h4_data['volume'].tail(2).mean()
+            avg_volume = h4_data['volume'].tail(12).mean()  # 2 days worth
+            if recent_volume > avg_volume * 2.0:
+                return True
+        
+        return False
+    
+    def _check_regime_alignment(self, phase, market_regime: Dict) -> bool:
+        """Check if phase aligns with current market regime"""
+        regime_type = market_regime.get('regime_type', 'UNKNOWN')
+        
+        if regime_type in ['BULL', 'bull']:
+            return phase.value in ['accumulation', 'markup']
+        elif regime_type in ['BEAR', 'bear']:
+            return phase.value in ['distribution', 'markdown']
+        elif regime_type in ['RANGE', 'ranging']:
+            return phase.value in ['accumulation', 'distribution']
+        
+        return False
+    
+    def create_enhanced_watchlist(self, scan_results: List[ScanResult], 
+                                max_symbols: int = 20) -> Dict:
+        """
+        Create enhanced watchlist with entry timing and regime context
+        
+        Returns:
+            Dict with watchlist and analysis context
+        """
+        # Filter for regime-aligned and high-scoring results
+        filtered_results = [
+            r for r in scan_results 
+            if r.market_regime_alignment and r.score >= 30
+        ]
+        
+        # Sort by score
+        top_results = sorted(filtered_results, key=lambda x: x.score, reverse=True)[:max_symbols]
+        
+        # Categorize by entry timing
+        ready_to_enter = [r.symbol for r in top_results if r.entry_timing == 'ENTER']
+        watch_for_entry = [r.symbol for r in top_results if r.entry_timing == 'WAIT']
+        
+        # Create phase distribution
+        phase_distribution = {}
+        for result in top_results:
+            phase = result.phase
+            if phase not in phase_distribution:
+                phase_distribution[phase] = []
+            phase_distribution[phase].append(result.symbol)
+        
+        return {
+            'watchlist': [r.symbol for r in top_results],
+            'ready_to_enter': ready_to_enter,
+            'watch_for_entry': watch_for_entry,
+            'phase_distribution': phase_distribution,
+            'total_symbols': len(top_results),
+            'regime_aligned_count': len([r for r in top_results if r.market_regime_alignment])
+        }
+    
+    def update_watchlist_data(self, watchlist: List[str]) -> Dict[str, bool]:
+        """Update multi-timeframe data for watchlist symbols"""
+        return self.data_manager.download_watchlist_data(
+            watchlist, self.scan_timeframes + self.confirmation_timeframes
+        )

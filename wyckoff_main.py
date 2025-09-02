@@ -154,8 +154,9 @@ class WyckoffTradingSystem:
             print("❌ System not initialized")
             return
         
-        print("\n🎛️  INTERACTIVE MODE")
-        print("Commands: cycle, status, performance, watchlist, config, export, quit")
+        print("\n🎛️  INSTITUTIONAL INTERACTIVE MODE")
+        print("Commands: cycle, status, performance, watchlist, config, export")  
+        print("          institutional, emergency, pdt, regime, analytics, quit")
         
         while True:
             try:
@@ -169,9 +170,17 @@ class WyckoffTradingSystem:
                 elif command == 'status':
                     status = self.wyckoff_trader.get_system_status()
                     self._display_status(status)
+                elif command == 'institutional':
+                    # INSTITUTIONAL FEATURE - Enhanced status
+                    institutional_status = self.wyckoff_trader.get_institutional_status()
+                    self._display_institutional_status(institutional_status)
                 elif command == 'performance':
                     perf = self.wyckoff_trader.get_performance_summary(days=30)
                     self._display_performance(perf)
+                elif command == 'analytics':
+                    # INSTITUTIONAL FEATURE - Full performance analytics
+                    institutional_perf = self.wyckoff_trader.get_institutional_performance_summary(days=30)
+                    self._display_institutional_performance(institutional_perf)
                 elif command == 'watchlist':
                     print(f"Current watchlist ({len(self.wyckoff_trader.watchlist)} symbols):")
                     for i, symbol in enumerate(self.wyckoff_trader.watchlist, 1):
@@ -181,15 +190,29 @@ class WyckoffTradingSystem:
                 elif command == 'export':
                     self.wyckoff_trader.export_data('exports', days=90)
                     print("📁 Data exported to 'exports' folder")
+                elif command == 'emergency':
+                    # INSTITUTIONAL FEATURE - Emergency mode status
+                    self._display_emergency_status()
+                elif command == 'pdt':
+                    # INSTITUTIONAL FEATURE - PDT compliance status
+                    self._display_pdt_status()
+                elif command == 'regime':
+                    # INSTITUTIONAL FEATURE - Market regime analysis
+                    self._display_market_regime()
                 elif command == 'help':
                     print("Available commands:")
-                    print("  cycle      - Run single trading cycle")
-                    print("  status     - Show system status")
-                    print("  performance - Show performance summary")
-                    print("  watchlist  - Show current watchlist")
-                    print("  config     - Update configuration")
-                    print("  export     - Export trading data")
-                    print("  quit       - Exit interactive mode")
+                    print("  cycle       - Run single trading cycle")
+                    print("  status      - Show basic system status")  
+                    print("  institutional - Show institutional system status")
+                    print("  performance - Show basic performance summary")
+                    print("  analytics   - Show institutional performance analytics")
+                    print("  watchlist   - Show current watchlist")
+                    print("  config      - Update configuration")
+                    print("  export      - Export trading data")
+                    print("  emergency   - Show emergency mode status")
+                    print("  pdt         - Show PDT compliance status")
+                    print("  regime      - Show market regime analysis")
+                    print("  quit        - Exit interactive mode")
                 elif command:
                     print(f"Unknown command: {command}. Type 'help' for available commands.")
                     
@@ -291,6 +314,172 @@ class WyckoffTradingSystem:
             print("❌ Invalid value entered")
         except Exception as e:
             print(f"❌ Error updating configuration: {e}")
+    
+    # ============================================================================
+    # INSTITUTIONAL FEATURES - DISPLAY METHODS
+    # ============================================================================
+    
+    def _display_institutional_status(self, status: Dict):
+        """Display comprehensive institutional system status"""
+        print("🏛️ INSTITUTIONAL SYSTEM STATUS")
+        print("=" * 50)
+        
+        # Basic status
+        print(f"System Active: {status['is_active']}")
+        print(f"Watchlist Size: {status['watchlist_size']}")
+        print(f"Active Signals: {status['active_signals']}")
+        print(f"Last Scan: {status.get('last_scan', 'Never')}")
+        
+        # Institutional features
+        if 'institutional_features' in status:
+            features = status['institutional_features']
+            print("\n🏛️ INSTITUTIONAL FEATURES:")
+            print(f"  Emergency Mode: {'🚨 ACTIVE' if features['emergency_mode_active'] else '✅ Normal'}")
+            print(f"  Market Regime: {features['market_regime'].title()} ({features['regime_confidence']:.1%} confidence)")
+            print(f"  Regime Updated: {features.get('regime_last_updated', 'Never')}")
+            print(f"  PDT Protection: {'✅ Active' if features['pdt_protection_active'] else '❌ Inactive'}")
+            print(f"  VaR Risk Mgmt: {'✅ Active' if features['var_risk_management_active'] else '❌ Inactive'}")
+            print(f"  Enhanced Wyckoff: {'✅ Active' if features['enhanced_wyckoff_active'] else '❌ Inactive'}")
+            print(f"  Performance Analytics: {'✅ Active' if features['performance_analytics_active'] else '❌ Inactive'}")
+    
+    def _display_institutional_performance(self, perf: Dict):
+        """Display institutional performance analytics"""
+        if 'error' in perf:
+            print(f"Error getting institutional performance: {perf['error']}")
+            return
+        
+        print("📊 INSTITUTIONAL PERFORMANCE ANALYTICS")
+        print("=" * 50)
+        
+        # Basic performance
+        print(f"Total Trades: {perf.get('total_trades', 0)}")
+        print(f"Win Rate: {perf.get('win_rate', 0):.1%}")
+        print(f"Total P&L: ${perf.get('total_pnl', 0):.2f}")
+        if perf.get('profit_factor', 0) > 0:
+            print(f"Profit Factor: {perf['profit_factor']:.2f}")
+        
+        # Institutional analytics
+        if 'institutional_analytics' in perf:
+            analytics = perf['institutional_analytics']
+            print("\n📈 RISK-ADJUSTED METRICS:")
+            print(f"  Sharpe Ratio: {analytics.get('sharpe_ratio', 0):.2f}")
+            print(f"  Sortino Ratio: {analytics.get('sortino_ratio', 0):.2f}")
+            print(f"  Calmar Ratio: {analytics.get('calmar_ratio', 0):.2f}")
+            print(f"  Max Drawdown: {analytics.get('max_drawdown', 0):.1%}")
+            
+            if analytics.get('var_95', 0) > 0:
+                print(f"  VaR (95%): ${analytics['var_95']:.2f}")
+                print(f"  VaR (99%): ${analytics['var_99']:.2f}")
+            
+            # Phase attribution
+            if analytics.get('phase_attribution'):
+                print("\n🔍 WYCKOFF PHASE ATTRIBUTION:")
+                for phase, metrics in analytics['phase_attribution'].items():
+                    if hasattr(metrics, 'total_return'):
+                        print(f"  {phase.title()}: ${metrics.total_return:.2f} ({metrics.total_trades} trades)")
+    
+    def _display_emergency_status(self):
+        """Display emergency mode status"""
+        try:
+            # Get emergency status from wyckoff trader
+            emergency_active = getattr(self.wyckoff_trader, 'emergency_mode_active', False)
+            
+            print("🚨 EMERGENCY MODE STATUS")
+            print("=" * 30)
+            print(f"Emergency Mode: {'🚨 ACTIVE' if emergency_active else '✅ Normal'}")
+            
+            if hasattr(self.wyckoff_trader, 'emergency_manager'):
+                # Try to get more detailed emergency status
+                try:
+                    # This would show recent emergency events, thresholds, etc.
+                    print("📊 Emergency Thresholds:")
+                    print(f"  Max Drawdown Limit: 15%")
+                    print(f"  Daily Loss Limit: ${self.wyckoff_trader.config.MAX_DAILY_LOSS}")
+                    print(f"  Portfolio Risk Limit: {self.wyckoff_trader.config.MAX_PORTFOLIO_RISK:.1%}")
+                    
+                except Exception as e:
+                    print(f"Could not get detailed emergency status: {e}")
+            
+        except Exception as e:
+            print(f"Error getting emergency status: {e}")
+    
+    def _display_pdt_status(self):
+        """Display PDT compliance status"""
+        try:
+            print("🛡️ PDT COMPLIANCE STATUS")
+            print("=" * 30)
+            
+            if hasattr(self.wyckoff_trader, 'pdt_manager'):
+                # Get account info for PDT status
+                account_info = self.wyckoff_trader._get_account_info()
+                account_id = account_info.get('account_id', 'default')
+                
+                # Get compliance report
+                try:
+                    report = self.wyckoff_trader.pdt_manager.get_compliance_report(account_id)
+                    
+                    if 'error' not in report:
+                        print(f"Compliance Score: {report['compliance_score']}/100")
+                        
+                        pdt_status = report.get('pdt_status', {})
+                        print(f"Is PDT Account: {pdt_status.get('is_pdt_account', 'Unknown')}")
+                        print(f"Day Trades This Week: {pdt_status.get('day_trades_this_week', 0)}")
+                        print(f"Day Trades Remaining: {pdt_status.get('day_trades_remaining', 'N/A')}")
+                        
+                        recommendations = report.get('recommendations', [])
+                        if recommendations:
+                            print("\n💡 Recommendations:")
+                            for rec in recommendations[:3]:
+                                print(f"  - {rec}")
+                    else:
+                        print(f"Error getting PDT report: {report['error']}")
+                        
+                except Exception as e:
+                    print(f"Error getting PDT compliance report: {e}")
+            else:
+                print("PDT manager not available")
+                
+        except Exception as e:
+            print(f"Error getting PDT status: {e}")
+    
+    def _display_market_regime(self):
+        """Display market regime analysis"""
+        try:
+            print("🌍 MARKET REGIME ANALYSIS")
+            print("=" * 30)
+            
+            if hasattr(self.wyckoff_trader, 'current_market_regime') and self.wyckoff_trader.current_market_regime:
+                regime = self.wyckoff_trader.current_market_regime
+                
+                print(f"Current Regime: {regime.regime.value.title()}")
+                print(f"Confidence: {regime.confidence:.1%}")
+                
+                if hasattr(regime, 'trend_strength'):
+                    print(f"Trend Strength: {regime.trend_strength.value.replace('_', ' ').title()}")
+                
+                if hasattr(regime, 'volatility_regime'):
+                    print(f"Volatility: {regime.volatility_regime.title()}")
+                    
+                print(f"Recommended Cash Allocation: {regime.cash_allocation_recommendation:.1%}")
+                
+                # Show when last updated
+                if hasattr(self.wyckoff_trader, 'regime_last_updated') and self.wyckoff_trader.regime_last_updated:
+                    print(f"Last Updated: {self.wyckoff_trader.regime_last_updated.strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                # Show sector rotation if available
+                if hasattr(regime, 'sector_rotation_signal') and regime.sector_rotation_signal:
+                    sorted_sectors = sorted(regime.sector_rotation_signal.items(), key=lambda x: x[1], reverse=True)
+                    top_3 = sorted_sectors[:3]
+                    print(f"\n🔄 Top Performing Sectors:")
+                    for sector, score in top_3:
+                        print(f"  {sector}: {score:.2f}")
+                
+            else:
+                print("Market regime analysis not available or not yet updated")
+                print("Run a trading cycle to update regime analysis")
+                
+        except Exception as e:
+            print(f"Error displaying market regime: {e}")
 
 
 def main():

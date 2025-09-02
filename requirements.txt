@@ -1,0 +1,44 @@
+# Core Python packages
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Web and API
+requests>=2.31.0
+yfinance>=0.2.18
+
+# Security and Encryption  
+cryptography>=41.0.0
+
+# Data Analysis and Technical Indicators
+ta>=0.10.0
+
+# Optional packages for extended functionality
+# Uncomment if needed for specific features
+
+# Web scraping (if needed for additional data sources)
+# beautifulsoup4>=4.12.0
+# selenium>=4.15.0
+
+# Visualization (if needed for charts/analysis)
+# matplotlib>=3.7.0
+
+# Web framework (if building web interface)
+# flask>=2.3.0
+
+# Development and testing
+# pytest>=7.4.0
+# black>=23.0.0
+# mypy>=1.5.0
+
+# Additional data sources (uncomment if needed)
+# alpha-vantage>=2.3.0
+# quandl>=3.7.0
+
+# Database extensions (uncomment if needed)
+# sqlalchemy>=2.0.0
+
+# Performance monitoring (uncomment if needed)  
+# psutil>=5.9.0
+
+# Logging enhancements (uncomment if needed)
+# colorlog>=6.7.0

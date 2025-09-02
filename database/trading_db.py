@@ -7,7 +7,8 @@ This is the single source of truth for all database operations
 """
 
 import sqlite3
-from datetime import datetime
+import pandas as pd
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass
@@ -51,7 +52,7 @@ class TradingDatabase:
     - Portfolio analytics
     """
     
-    def __init__(self, db_path: str = "data/trading_bot.db"):
+    def __init__(self, db_path: str = "data/trading_data.db"):
         """
         Initialize the enhanced trading database
         
@@ -66,6 +67,69 @@ class TradingDatabase:
     def init_database(self):
         """Initialize database tables with enhanced capabilities"""
         with sqlite3.connect(self.db_path) as conn:
+            # Multi-timeframe stock data table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS stock_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    timestamp DATETIME NOT NULL,
+                    open REAL NOT NULL,
+                    high REAL NOT NULL,
+                    low REAL NOT NULL,
+                    close REAL NOT NULL,
+                    volume INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(symbol, timeframe, timestamp)
+                )
+            ''')
+            
+            # Technical indicators table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS technical_indicators (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    timestamp DATETIME NOT NULL,
+                    indicator_type TEXT NOT NULL,
+                    indicator_value REAL NOT NULL,
+                    metadata TEXT,  -- JSON for complex indicator data
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(symbol, timeframe, timestamp, indicator_type)
+                )
+            ''')
+            
+            # Market regime cache table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS market_regime_cache (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date DATE NOT NULL UNIQUE,
+                    regime_type TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    vix_data TEXT,  -- JSON for VIX levels and metrics
+                    sector_data TEXT,  -- JSON for sector rotation data
+                    metadata TEXT,  -- JSON for additional market data
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Current watchlist table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS current_watchlist (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL UNIQUE,
+                    added_date DATETIME NOT NULL,
+                    timeframe_analysis TEXT,  -- JSON for multi-timeframe analysis
+                    phase TEXT NOT NULL,
+                    strength REAL NOT NULL,
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
             # Trading signals table
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS signals (
@@ -218,6 +282,15 @@ class TradingDatabase:
             conn.execute('CREATE INDEX IF NOT EXISTS idx_positions_enhanced_strategy_id ON positions_enhanced(strategy_id)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_partial_sales_symbol ON partial_sales(symbol, sale_date)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_day_trade_checks_date ON day_trade_checks(check_date, symbol)')
+            
+            # Multi-timeframe indexes
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_stock_data_symbol_timeframe_timestamp ON stock_data(symbol, timeframe, timestamp)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_stock_data_timestamp ON stock_data(timestamp)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_technical_indicators_symbol_timeframe_timestamp ON technical_indicators(symbol, timeframe, timestamp)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_technical_indicators_symbol_timeframe_type ON technical_indicators(symbol, timeframe, indicator_type)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_market_regime_cache_date ON market_regime_cache(date)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_current_watchlist_symbol ON current_watchlist(symbol)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_current_watchlist_phase_strength ON current_watchlist(phase, strength)')
     
     def log_signal(self, signal: StrategySignal = None, action_taken: str = None):
         """Log a trading signal"""
@@ -241,16 +314,28 @@ class TradingDatabase:
     
     def log_trade(self, symbol: str, action: str, quantity: float, price: float, 
                   signal_phase: str, signal_strength: float, account_type: str, 
-                  order_id: str = None, day_trade_check: str = None, status: str = 'PENDING'): # <<< CHANGE 1: Added status parameter
-        """Log a trade execution with day trade check info and status"""
+                  order_id: str = None, day_trade_check: str = None, status: str = 'PENDING', 
+                  trade_date: datetime = None): 
+        """
+        Log a trade execution with day trade check info and status
+        
+        Args:
+            trade_date: Actual trade date (defaults to current date if not provided)
+        """
+        # Use provided trade_date or default to current date
+        date_to_use = trade_date.strftime('%Y-%m-%d') if trade_date else datetime.now().strftime('%Y-%m-%d')
+        
+        # For trade_datetime, use the full datetime if provided, otherwise current timestamp
+        datetime_to_use = trade_date if trade_date else datetime.now()
+        
         with sqlite3.connect(self.db_path) as conn:
             conn.execute('''
                 INSERT INTO trades (date, symbol, action, quantity, price, total_value, 
                                   signal_phase, signal_strength, account_type, order_id, 
-                                  day_trade_check, status, strategy_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', ( # <<< CHANGE 2: Updated SQL query and values tuple
-                datetime.now().strftime('%Y-%m-%d'),
+                                  day_trade_check, status, strategy_id, trade_datetime)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                date_to_use,
                 symbol,
                 action,
                 quantity,
@@ -261,8 +346,9 @@ class TradingDatabase:
                 account_type,
                 order_id,
                 day_trade_check,
-                status, # <<< CHANGE 3: Added status to the values
-                self.strategy_id
+                status,
+                self.strategy_id,
+                datetime_to_use
             ))
     
     def update_position(self, symbol: str, shares: float, cost: float, 
@@ -272,8 +358,99 @@ class TradingDatabase:
         
         with sqlite3.connect(self.db_path) as conn:
             self._update_positions_enhanced_table_fixed(conn, symbol, shares, cost, account_type, entry_phase, entry_strength, today)
-    
+            
+            # After updating position, recalculate dates from actual trade history
+            self._recalculate_position_dates(conn, symbol, account_type)
 
+    def _recalculate_position_dates(self, conn, symbol: str, account_type: str):
+        """
+        Recalculate position first_purchase_date and last_purchase_date from actual trade history
+        
+        Args:
+            conn: Database connection
+            symbol: Stock symbol
+            account_type: Account type
+            
+        Returns:
+            bool: True if dates were actually updated, False otherwise
+        """
+        try:
+            # Get current position dates
+            current_position = conn.execute('''
+                SELECT first_purchase_date, last_purchase_date FROM positions_enhanced
+                WHERE symbol = ? AND account_type = ? AND strategy_id = ?
+            ''', (symbol, account_type, self.strategy_id)).fetchone()
+            
+            if not current_position:
+                return False
+                
+            # Get all BUY trades for this symbol and account, ordered by date
+            trades = conn.execute('''
+                SELECT date FROM trades 
+                WHERE symbol = ? AND account_type = ? AND action = 'BUY' AND status = 'FILLED'
+                ORDER BY date ASC
+            ''', (symbol, account_type)).fetchall()
+            
+            if not trades:
+                # No buy trades found, skip date recalculation
+                return False
+                
+            # Extract dates
+            trade_dates = [trade[0] for trade in trades]
+            new_first_purchase_date = trade_dates[0]  # Earliest buy
+            new_last_purchase_date = trade_dates[-1]  # Latest buy
+            
+            # Check if dates actually changed
+            current_first, current_last = current_position
+            if (current_first == new_first_purchase_date and 
+                current_last == new_last_purchase_date):
+                return False  # No change needed
+            
+            # Calculate time held days
+            try:
+                first_dt = datetime.strptime(new_first_purchase_date, '%Y-%m-%d')
+                time_held_days = (datetime.now() - first_dt).days
+            except:
+                time_held_days = 0
+            
+            # Update the position with correct dates
+            conn.execute('''
+                UPDATE positions_enhanced 
+                SET first_purchase_date = ?, last_purchase_date = ?, time_held_days = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE symbol = ? AND account_type = ? AND strategy_id = ?
+            ''', (new_first_purchase_date, new_last_purchase_date, time_held_days, 
+                  symbol, account_type, self.strategy_id))
+                  
+            return True  # Dates were updated
+                  
+        except Exception as e:
+            # Don't fail the entire operation if date recalculation fails
+            import logging
+            logging.getLogger(__name__).debug(f"Error recalculating position dates for {symbol}: {e}")
+            return False
+    
+    def rebuild_all_position_dates_from_trade_history(self):
+        """
+        Rebuild first_purchase_date and last_purchase_date for ALL positions based on actual trade history.
+        
+        This is a utility method to fix positions that have incorrect dates.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Get all positions that exist
+            positions = conn.execute('''
+                SELECT DISTINCT symbol, account_type 
+                FROM positions_enhanced 
+                WHERE strategy_id = ?
+            ''', (self.strategy_id,)).fetchall()
+            
+            updated_count = 0
+            for symbol, account_type in positions:
+                # Only recalculate if dates actually changed
+                if self._recalculate_position_dates(conn, symbol, account_type):
+                    updated_count += 1
+            
+            return updated_count
     
     def _update_positions_enhanced_table_fixed(self, conn, symbol: str, shares: float, cost: float, 
                                              account_type: str, entry_phase: str, entry_strength: float, today: str):
@@ -782,3 +959,257 @@ class TradingDatabase:
         except Exception as e:
             # Handle error silently
             pass
+
+    # Multi-timeframe data methods
+    
+    def store_stock_data(self, symbol: str, timeframe: str, df: pd.DataFrame):
+        """
+        Store stock data for multi-timeframe analysis
+        
+        Args:
+            symbol: Stock symbol
+            timeframe: Timeframe (1D, 4H, 1H, 15M)
+            df: DataFrame with OHLCV data
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                for timestamp, row in df.iterrows():
+                    # Skip future timestamps to prevent bad data
+                    if hasattr(timestamp, 'date') and timestamp.date() > datetime.now().date():
+                        continue
+                        
+                    conn.execute('''
+                        INSERT OR REPLACE INTO stock_data 
+                        (symbol, timeframe, timestamp, open, high, low, close, volume, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ''', (
+                        symbol, timeframe, timestamp.strftime('%Y-%m-%d %H:%M:%S') if hasattr(timestamp, 'strftime') else str(timestamp), 
+                        float(row['open']), float(row['high']), 
+                        float(row['low']), float(row['close']), 
+                        int(row['volume'])
+                    ))
+                conn.commit()
+                
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error storing stock data for {symbol} {timeframe}: {e}")
+    
+    def get_stock_data(self, symbol: str, timeframe: str, 
+                       start_date: datetime = None, end_date: datetime = None) -> Optional[pd.DataFrame]:
+        """
+        Get stock data for analysis
+        
+        Args:
+            symbol: Stock symbol
+            timeframe: Timeframe (1D, 4H, 1H, 15M)
+            start_date: Start date filter
+            end_date: End date filter
+            
+        Returns:
+            DataFrame with OHLCV data or None
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                query = '''
+                    SELECT timestamp, open, high, low, close, volume
+                    FROM stock_data 
+                    WHERE symbol = ? AND timeframe = ?
+                '''
+                params = [symbol, timeframe]
+                
+                if start_date:
+                    query += ' AND timestamp >= ?'
+                    params.append(start_date)
+                    
+                if end_date:
+                    query += ' AND timestamp <= ?'
+                    params.append(end_date)
+                    
+                query += ' ORDER BY timestamp'
+                
+                df = pd.read_sql_query(query, conn, params=params, index_col='timestamp')
+                return df if not df.empty else None
+                
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error getting stock data for {symbol} {timeframe}: {e}")
+            return None
+    
+    def get_latest_timestamp(self, symbol: str, timeframe: str) -> Optional[datetime]:
+        """Get latest timestamp for a symbol/timeframe"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                result = conn.execute('''
+                    SELECT MAX(timestamp) FROM stock_data 
+                    WHERE symbol = ? AND timeframe = ?
+                ''', (symbol, timeframe)).fetchone()
+                
+                if result and result[0]:
+                    return datetime.fromisoformat(result[0])
+                    
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error getting latest timestamp for {symbol} {timeframe}: {e}")
+            
+        return None
+    
+    def store_technical_indicator(self, symbol: str, timeframe: str, 
+                                 timestamp: datetime, indicator_type: str, 
+                                 value: float, metadata: Dict = None):
+        """Store technical indicator data"""
+        try:
+            import json
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('''
+                    INSERT OR REPLACE INTO technical_indicators 
+                    (symbol, timeframe, timestamp, indicator_type, indicator_value, metadata, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (
+                    symbol, timeframe, timestamp, indicator_type, value,
+                    json.dumps(metadata) if metadata else None
+                ))
+                
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error storing indicator {indicator_type} for {symbol} {timeframe}: {e}")
+    
+    def get_technical_indicators(self, symbol: str, timeframe: str, 
+                                indicator_type: str, days: int = 30) -> pd.DataFrame:
+        """Get technical indicator data"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                query = '''
+                    SELECT timestamp, indicator_value, metadata
+                    FROM technical_indicators 
+                    WHERE symbol = ? AND timeframe = ? AND indicator_type = ?
+                    AND timestamp >= datetime('now', '-{} days')
+                    ORDER BY timestamp
+                '''.format(days)
+                
+                return pd.read_sql_query(query, conn, params=(symbol, timeframe, indicator_type))
+                
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error getting indicators for {symbol} {timeframe}: {e}")
+            return pd.DataFrame()
+    
+    def store_market_regime(self, date: datetime, regime_type: str, 
+                           confidence: float, vix_data: Dict = None, 
+                           sector_data: Dict = None, metadata: Dict = None):
+        """Store market regime data"""
+        try:
+            import json
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('''
+                    INSERT OR REPLACE INTO market_regime_cache 
+                    (date, regime_type, confidence, vix_data, sector_data, metadata, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (
+                    date.date(), regime_type, confidence,
+                    json.dumps(vix_data) if vix_data else None,
+                    json.dumps(sector_data) if sector_data else None,
+                    json.dumps(metadata) if metadata else None
+                ))
+                
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error storing market regime for {date}: {e}")
+    
+    def get_current_market_regime(self) -> Optional[Dict]:
+        """Get current market regime"""
+        try:
+            import json
+            with sqlite3.connect(self.db_path) as conn:
+                result = conn.execute('''
+                    SELECT regime_type, confidence, vix_data, sector_data, metadata
+                    FROM market_regime_cache 
+                    ORDER BY date DESC LIMIT 1
+                ''').fetchone()
+                
+                if result:
+                    return {
+                        'regime_type': result[0],
+                        'confidence': result[1],
+                        'vix_data': json.loads(result[2]) if result[2] else None,
+                        'sector_data': json.loads(result[3]) if result[3] else None,
+                        'metadata': json.loads(result[4]) if result[4] else None
+                    }
+                    
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error getting market regime: {e}")
+            
+        return None
+    
+    def update_watchlist(self, symbols: List[str], analysis_data: Dict[str, Dict]):
+        """Update current watchlist with analysis data"""
+        try:
+            import json
+            with sqlite3.connect(self.db_path) as conn:
+                # Clear existing watchlist
+                conn.execute('DELETE FROM current_watchlist')
+                
+                # Add new watchlist
+                for symbol in symbols:
+                    data = analysis_data.get(symbol, {})
+                    conn.execute('''
+                        INSERT INTO current_watchlist 
+                        (symbol, added_date, timeframe_analysis, phase, strength, last_updated)
+                        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ''', (
+                        symbol,
+                        datetime.now(),
+                        json.dumps(data.get('timeframe_analysis', {})),
+                        data.get('phase', 'unknown'),
+                        data.get('strength', 0.0)
+                    ))
+                    
+                conn.commit()
+                
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error updating watchlist: {e}")
+    
+    def get_current_watchlist(self) -> List[Dict]:
+        """Get current watchlist"""
+        try:
+            import json
+            with sqlite3.connect(self.db_path) as conn:
+                results = conn.execute('''
+                    SELECT symbol, added_date, timeframe_analysis, phase, strength, last_updated
+                    FROM current_watchlist 
+                    ORDER BY strength DESC
+                ''').fetchall()
+                
+                watchlist = []
+                for row in results:
+                    watchlist.append({
+                        'symbol': row[0],
+                        'added_date': row[1],
+                        'timeframe_analysis': json.loads(row[2]) if row[2] else {},
+                        'phase': row[3],
+                        'strength': row[4],
+                        'last_updated': row[5]
+                    })
+                    
+                return watchlist
+                
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error getting watchlist: {e}")
+            return []
+    
+    def data_exists(self, symbol: str, timeframe: str, days_back: int = 1) -> bool:
+        """Check if recent data exists for symbol/timeframe"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cutoff_date = datetime.now() - timedelta(days=days_back)
+                result = conn.execute('''
+                    SELECT COUNT(*) FROM stock_data 
+                    WHERE symbol = ? AND timeframe = ? AND timestamp >= ?
+                ''', (symbol, timeframe, cutoff_date)).fetchone()
+                
+                return result[0] > 0 if result else False
+                
+        except Exception as e:
+            return False

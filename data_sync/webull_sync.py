@@ -123,6 +123,19 @@ class WebullDataSync:
                         
                         self.logger.info(f"   ✅ Synced {position_stats.get('positions_synced', 0)} positions")
                     
+                    # After both trade history and positions are synced, 
+                    # rebuild position dates from actual trade history
+                    if include_trade_history and include_positions:
+                        self.logger.info(f"   📅 Rebuilding position dates from trade history...")
+                        try:
+                            updated_positions = self.db.rebuild_all_position_dates_from_trade_history()
+                            if updated_positions > 0:
+                                self.logger.info(f"   ✅ Fixed dates for {updated_positions} positions")
+                            else:
+                                self.logger.debug(f"   ℹ️  No positions needed date fixes")
+                        except Exception as e:
+                            self.logger.warning(f"   ⚠️  Error rebuilding position dates: {e}")
+                    
                     # Update overall stats
                     self.sync_stats['accounts_synced'] += 1
                     self.sync_stats['trades_synced'] += account_stats['trades_synced']

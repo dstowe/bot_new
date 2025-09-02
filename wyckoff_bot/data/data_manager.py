@@ -14,11 +14,12 @@ from pathlib import Path
 
 from database.trading_db import TradingDatabase
 from ..strategy.wyckoff_strategy import TradeSignal
+from .multi_timeframe_data_manager import MultiTimeframeDataManager
 
 class WyckoffDataManager:
     """
-    Data manager for Wyckoff bot
-    Integrates with existing trading database
+    Enhanced data manager for Wyckoff bot with multi-timeframe support
+    Integrates with existing trading database and new multi-timeframe system
     """
     
     def __init__(self, db_path: str = "data/trading_data.db", 
@@ -26,6 +27,13 @@ class WyckoffDataManager:
         self.db_path = db_path
         self.logger = logger or logging.getLogger(__name__)
         self.trading_db = TradingDatabase(db_path=db_path)
+        
+        # Initialize multi-timeframe data manager
+        self.multi_tf_manager = MultiTimeframeDataManager(
+            db=self.trading_db, 
+            logger=self.logger
+        )
+        
         self._init_wyckoff_tables()
     
     def _init_wyckoff_tables(self):
@@ -342,3 +350,129 @@ class WyckoffDataManager:
         except Exception as e:
             self.logger.error(f"Error getting analysis history for {symbol}: {e}")
             return []
+    
+    # Multi-timeframe data methods
+    
+    def download_watchlist_data(self, watchlist: List[str], 
+                               timeframes: List[str] = None) -> Dict[str, bool]:
+        """
+        Download multi-timeframe data for watchlist symbols
+        
+        Args:
+            watchlist: List of symbols
+            timeframes: List of timeframes to download
+            
+        Returns:
+            Dict mapping symbol to success status
+        """
+        timeframes = timeframes or ['1D', '4H', '1H']
+        self.logger.info(f"Downloading multi-timeframe data for {len(watchlist)} symbols")
+        
+        return self.multi_tf_manager.update_watchlist_data(
+            watchlist, priority_timeframes=timeframes
+        )
+    
+    def get_multi_timeframe_data(self, symbol: str, 
+                                timeframes: List[str] = None,
+                                bars: int = 100) -> Dict[str, pd.DataFrame]:
+        """
+        Get multi-timeframe data for analysis
+        
+        Args:
+            symbol: Stock symbol
+            timeframes: List of timeframes
+            bars: Number of bars per timeframe
+            
+        Returns:
+            Dict mapping timeframe to DataFrame
+        """
+        timeframes = timeframes or ['1D', '4H', '1H']
+        results = {}
+        
+        for timeframe in timeframes:
+            df = self.multi_tf_manager.get_cached_data(symbol, timeframe, bars)
+            if df is not None:
+                results[timeframe] = df
+                
+        return results
+    
+    def update_symbol_data(self, symbol: str, 
+                          timeframes: List[str] = None,
+                          force_update: bool = False) -> Dict[str, pd.DataFrame]:
+        """Update data for single symbol"""
+        return self.multi_tf_manager.download_symbol_data(
+            symbol, timeframes, force_update
+        )
+    
+    def get_data_status(self, symbols: List[str] = None) -> Dict[str, Dict]:
+        """Get data availability status"""
+        return self.multi_tf_manager.get_data_status(symbols)
+    
+    def validate_data_integrity(self, symbols: List[str] = None) -> Dict[str, Dict]:
+        """Validate data integrity across timeframes"""
+        return self.multi_tf_manager.validate_data_integrity(symbols)
+    
+    def export_multi_timeframe_data(self, symbols: List[str], 
+                                   output_dir: str, days: int = 30):
+        """Export multi-timeframe data to files"""
+        self.multi_tf_manager.export_data(symbols, output_dir, days=days)
+    
+    def cleanup_old_data(self, days_to_keep: int = 90):
+        """Clean up old data from all tables"""
+        # Clean up Wyckoff-specific data
+        super().cleanup_old_data(days_to_keep)
+        
+        # Clean up multi-timeframe data
+        self.multi_tf_manager.cleanup_old_data(days_to_keep)
+    
+    def store_multi_timeframe_indicators(self, symbol: str, 
+                                       indicators_by_timeframe: Dict[str, Dict],
+                                       timestamp: datetime = None):
+        """
+        Store technical indicators for multiple timeframes
+        
+        Args:
+            symbol: Stock symbol
+            indicators_by_timeframe: Dict[timeframe][indicator_type] = value
+            timestamp: Timestamp (defaults to now)
+        """
+        timestamp = timestamp or datetime.now()
+        
+        for timeframe, indicators in indicators_by_timeframe.items():
+            for indicator_type, value in indicators.items():
+                if isinstance(value, dict):
+                    # Complex indicator with metadata
+                    indicator_value = value.get('value', 0)
+                    metadata = {k: v for k, v in value.items() if k != 'value'}
+                else:
+                    indicator_value = value
+                    metadata = None
+                
+                self.trading_db.store_technical_indicator(
+                    symbol, timeframe, timestamp, indicator_type,
+                    float(indicator_value), metadata
+                )
+    
+    def get_multi_timeframe_indicators(self, symbol: str, 
+                                     indicator_types: List[str],
+                                     timeframes: List[str] = None,
+                                     days: int = 30) -> Dict[str, Dict[str, pd.DataFrame]]:
+        """
+        Get technical indicators across timeframes
+        
+        Returns:
+            Dict[timeframe][indicator_type] = DataFrame
+        """
+        timeframes = timeframes or ['1D', '4H', '1H']
+        results = {}
+        
+        for timeframe in timeframes:
+            results[timeframe] = {}
+            for indicator_type in indicator_types:
+                df = self.trading_db.get_technical_indicators(
+                    symbol, timeframe, indicator_type, days
+                )
+                if not df.empty:
+                    results[timeframe][indicator_type] = df
+        
+        return results

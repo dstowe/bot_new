@@ -203,14 +203,6 @@ class TradeHistorySync:
             final_orders = list(unique_orders.values())
             self.logger.debug(f"Total unique orders extracted: {len(final_orders)}")
             
-            # Debug: Show sample order if available
-            if final_orders and len(final_orders) > 0:
-                sample = final_orders[0]
-                self.logger.debug(f"Sample order status fields:")
-                for field in ['status', 'statusStr', 'orderStatus', 'filledQuantity']:
-                    if field in sample:
-                        self.logger.debug(f"   {field}: {sample[field]}")
-            
             return final_orders
             
         except Exception as e:
@@ -328,13 +320,18 @@ class TradeHistorySync:
         date_fields = ['filledTime', 'filledTime0', 'createTime', 'createTime0', 
                        'placeTime', 'updateTime', 'createdAt', 'orderDate', 'date']
         
+        order_id = self._get_order_id(order)
+        self.logger.debug(f"🕐 Parsing date for order {order_id}:")
+        
         for field in date_fields:
             if field in order and order[field]:
                 try:
                     date_value = order[field]
+                    self.logger.debug(f"   Checking field '{field}': {date_value} (type: {type(date_value)})")
                     
                     # Skip zero or invalid values
                     if date_value == 0 or date_value == '0':
+                        self.logger.debug(f"   -> Skipping zero value")
                         continue
                     
                     # Handle different date formats
@@ -343,24 +340,33 @@ class TradeHistorySync:
                         if date_value > 1e10:  # Milliseconds
                             date_value = date_value / 1000
                         if date_value > 0:  # Valid timestamp
-                            return datetime.fromtimestamp(date_value)
+                            parsed_date = datetime.fromtimestamp(date_value)
+                            self.logger.debug(f"   -> ✅ Successfully parsed as timestamp: {parsed_date}")
+                            return parsed_date
                     
                     elif isinstance(date_value, str):
                         # Try ISO format first
                         try:
-                            return datetime.fromisoformat(date_value.replace('Z', '+00:00'))
+                            parsed_date = datetime.fromisoformat(date_value.replace('Z', '+00:00'))
+                            self.logger.debug(f"   -> ✅ Successfully parsed as ISO: {parsed_date}")
+                            return parsed_date
                         except ValueError:
                             # Try other common formats
                             for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%m/%d/%Y',
                                         '%Y-%m-%dT%H:%M:%S', '%Y/%m/%d %H:%M:%S']:
                                 try:
-                                    return datetime.strptime(date_value, fmt)
+                                    parsed_date = datetime.strptime(date_value, fmt)
+                                    self.logger.debug(f"   -> ✅ Successfully parsed with format {fmt}: {parsed_date}")
+                                    return parsed_date
                                 except ValueError:
                                     continue
+                            self.logger.debug(f"   -> ❌ Could not parse string date")
                     
-                except Exception:
+                except Exception as e:
+                    self.logger.debug(f"   -> ❌ Exception parsing: {e}")
                     continue
         
+        self.logger.warning(f"⚠️  Could not parse any date field for order {order_id}")
         return None
     
     def _has_required_fields(self, order: Dict) -> bool:
@@ -447,7 +453,10 @@ class TradeHistorySync:
             # Get order date (prefer filled time)
             order_date = self._parse_order_date(order)
             if not order_date:
+                self.logger.warning(f"❌ Could not parse date for order {order_id}, skipping")
                 return False
+            
+            self.logger.debug(f"📅 Final parsed date for order {order_id}: {order_date} (symbol: {symbol})")
             
             # Get order status for database
             status = self._get_order_status(order)
@@ -458,8 +467,7 @@ class TradeHistorySync:
             if self._is_duplicate_trade(order_id, symbol, date_str):
                 return False
             
-            # <<< MODIFICATION START >>>
-            # Log the trade to database with proper status in a single step
+            # Log the trade to database with actual trade date
             self.db.log_trade(
                 symbol=symbol,
                 action=action,
@@ -470,10 +478,9 @@ class TradeHistorySync:
                 account_type=account.account_type,
                 order_id=str(order_id) if order_id else None,
                 day_trade_check='N/A',
-                status=mapped_status  # Pass the status directly
+                status=mapped_status,
+                trade_date=order_date  # Pass the actual trade date from Webull
             )
-            # The separate call to _update_trade_status is no longer needed.
-            # <<< MODIFICATION END >>>
             
             self.logger.info(f"   ✅ Synced: {action} {quantity} {symbol} @ ${price:.2f} ({order_date.strftime('%Y-%m-%d')}) - {mapped_status}")
             return True
